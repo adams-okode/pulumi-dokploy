@@ -33,7 +33,7 @@ Complete. Production provider behavior was not changed.
 ## Commits
 
 - `8635260` — `test: complete hybrid mount lifecycle coverage`
-- Report commit: recorded after this report was added.
+- `9b3a757` — `docs: report mount lifecycle coverage`
 
 ## Concerns
 
