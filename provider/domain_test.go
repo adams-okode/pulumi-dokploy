@@ -102,6 +102,32 @@ func TestDomainDiff(t *testing.T) {
 	require.Equal(t, p.Update, enabled.DetailedDiff["enabled"].Kind)
 }
 
+func TestDomainDiffCertificateFieldsAreMutable(t *testing.T) {
+	oldResolver := "resolver-old"
+	newResolver := "resolver-new"
+	old := DomainArgs{ApplicationID: stringPtr("a1"), Host: "example.invalid", CertificateType: CertificateNone}
+	in := old
+	in.CertificateType = CertificateCustom
+	in.CustomCertResolver = &newResolver
+	old.CustomCertResolver = &oldResolver
+
+	certificateChanged, err := (Domain{}).Diff(t.Context(), infer.DiffRequest[DomainArgs, DomainState]{Inputs: in, State: DomainState{DomainArgs: old}})
+	require.NoError(t, err)
+	require.Equal(t, p.Update, certificateChanged.DetailedDiff["certificateType"].Kind)
+	require.Equal(t, p.Update, certificateChanged.DetailedDiff["customCertResolver"].Kind)
+
+	resolverChanged := old
+	resolverChanged.CustomCertResolver = &newResolver
+	resolverDiff, err := (Domain{}).Diff(t.Context(), infer.DiffRequest[DomainArgs, DomainState]{Inputs: resolverChanged, State: DomainState{DomainArgs: old}})
+	require.NoError(t, err)
+	require.Equal(t, p.Update, resolverDiff.DetailedDiff["customCertResolver"].Kind)
+	require.NotContains(t, resolverDiff.DetailedDiff, "certificateType")
+
+	unchanged, err := (Domain{}).Diff(t.Context(), infer.DiffRequest[DomainArgs, DomainState]{Inputs: old, State: DomainState{DomainArgs: old}})
+	require.NoError(t, err)
+	require.Empty(t, unchanged.DetailedDiff)
+}
+
 func TestDomainCreateApplicationAndDisabledUpdate(t *testing.T) {
 	s := newScriptedServer(t,
 		expectPOST("/api/domain.create", `{"applicationId":"a1","certificateType":"letsencrypt","domainType":"application","host":"app.example.com","https":true,"stripPath":false}`, `{"domainId":"d1"}`),

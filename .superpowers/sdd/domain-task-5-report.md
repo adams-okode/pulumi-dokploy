@@ -42,3 +42,23 @@ Implemented and verified. No production provider behavior was changed.
   resolver-gated cases were not exercised against a server.
 - The worktree contained a pre-existing deletion of
   `.superpowers/sdd/task-1-report.md`; it was not modified or staged.
+
+## Review follow-up: Domain diff coverage
+
+- Added `TestDomainDiffCertificateFieldsAreMutable` covering independent
+  `certificateType` and `customCertResolver` changes, asserting both are
+  documented `Update` diffs rather than replacements, and asserting unchanged
+  inputs produce no diff.
+- TDD RED evidence: `go test ./provider -run TestDomainDiffCertificateFieldsAreMutable -count=1`
+  failed because the temporary first assertion expected `update&replace` while
+  the implementation returned `update`.
+- TDD GREEN evidence: after correcting that assertion to the documented mutable
+  kind, the focused Domain and full test suites passed.
+
+Additional verification:
+
+1. `go test ./provider -run 'TestDomain' -count=1` - PASS.
+2. `go test ./provider -run 'TestDomain|TestLiveTier2Workloads/Domain' -count=1 -v`
+   - PASS; live acceptance skipped without opt-in credentials.
+3. `go test ./... -count=1` - PASS.
+4. `git diff --check` - PASS.
