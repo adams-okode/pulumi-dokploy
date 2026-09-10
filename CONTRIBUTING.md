@@ -6,8 +6,9 @@
 4. Update the owned GitHub Actions workflows directly when CI behavior changes.
 5. Ensure `git diff --check` is clean and include generated schema/SDK changes in the commit.
 
-Pull requests should explain user-visible behavior and include regression tests. Acceptance tests
-require protected repository secrets and are run manually by maintainers.
+Pull requests must explain user-visible behavior and include regression tests.
+Maintainers run live acceptance tests manually with protected repository secrets.
+See [`tests/README.md`](tests/README.md) for the test strategy and safe commands.
 
 ## Release credentials
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,50 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
+
+func TestLiveAcceptanceReadmeContract(t *testing.T) {
+	readmeBytes, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(readmeBytes)
+	for _, required := range []string{
+		"Direct-provider lifecycle tests",
+		"Pulumi Automation API smoke test",
+		"TestLiveTier1ControlPlane",
+		"TestLiveTier2Workloads",
+		"TestLiveTier3Databases",
+		"TestLiveTier4Backups",
+		"TestAccLifecycleSmoke",
+		"DOKPLOY_ACCEPTANCE=1",
+		"DOKPLOY_ENDPOINT",
+		"DOKPLOY_API_KEY",
+		"DOKPLOY_ACCEPTANCE_STOP_FILE",
+		"-parallel=1",
+		"DOKPLOY_REGISTRY_URL",
+		"DOKPLOY_GITLAB_INTEGRATION_ID",
+		"DOKPLOY_ACCEPTANCE_ALLOW_REPLICAS",
+		"DOKPLOY_CUSTOM_CERT_RESOLVER",
+		"docs/bugs/README.md",
+		"docs/bugs/2026-09-05-live-acceptance-run.md",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Errorf("live acceptance README is missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"Go test code loads .env", "tests read .env", "parse .env"} {
+		if strings.Contains(readme, prohibited) {
+			t.Errorf("live acceptance README contains prohibited instruction %q", prohibited)
+		}
+	}
+	contributingBytes, err := os.ReadFile("../CONTRIBUTING.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contributingBytes), "tests/README.md") {
+		t.Error("CONTRIBUTING.md does not link to the live acceptance guide")
+	}
+}
 
 func TestAccLifecycleSmoke(t *testing.T) {
 	if os.Getenv("DOKPLOY_ACCEPTANCE") != "1" {
