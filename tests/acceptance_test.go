@@ -113,8 +113,9 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 		"fallback cleanup",
 		"explicit resource absence",
 		"Cleanup contexts are independent",
-		"creates `DOKPLOY_ACCEPTANCE_STOP_FILE` when cleanup fails",
-		"Do not run a later heavy tier when the marker exists",
+		"The stop marker is created only when cleanup fails or a confirmed server-health failure occurs.",
+		"Do not run a later heavy tier",
+		"when the marker exists",
 		"**Pass:**",
 		"**Skip:**",
 		"**Provider defect:**",
@@ -124,10 +125,16 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 		"Never run these tests against a production server",
 		"Do not print credentials",
 		"Redact credentials",
+		"Process prerequisites",
+		"Workflow/operator safety setup",
+		"The stop marker is created only when cleanup fails or a confirmed server-health failure occurs.",
 	} {
 		if !strings.Contains(readme, required) {
 			t.Errorf("README is missing safety or result contract %q", required)
 		}
+	}
+	if strings.Contains(readme, "when a heavy operation cannot safely complete") {
+		t.Error("README incorrectly treats a heavy-operation failure as a stop-marker condition")
 	}
 	for _, prohibited := range []string{"Go test code loads .env", "tests read .env", "parse .env"} {
 		if strings.Contains(readme, prohibited) {

@@ -38,12 +38,18 @@ broader direct-provider coverage.
 ## Prerequisites
 
 Install Go `1.26.6`, the pinned Pulumi CLI `3.259.0`, and the repository's
-local provider binary. The test process requires these variables:
+local provider binary.
+
+**Process prerequisites** are the variables that enable a live test process:
 
 - `DOKPLOY_ACCEPTANCE=1` opts into live execution.
 - `DOKPLOY_ENDPOINT` identifies the dedicated Dokploy server.
 - `DOKPLOY_API_KEY` authenticates the test run.
-- `DOKPLOY_ACCEPTANCE_STOP_FILE` names the stop marker shared by the tiers.
+
+**Workflow/operator safety setup** must configure
+`DOKPLOY_ACCEPTANCE_STOP_FILE` before the first tier. The variable names the
+writable stop-marker path that the workflow and operator inspect between tiers.
+It is safety setup, not a process prerequisite.
 
 The server must support the resources selected by the tier. The operator must
 have permission to create and delete only the reserved test resources.
@@ -107,10 +113,10 @@ deletion. Cleanup contexts are independent, so a timed-out destroy does not
 prevent stack removal or the next cleanup attempt. The harness treats an
 already-absent resource as cleaned.
 
-The harness creates `DOKPLOY_ACCEPTANCE_STOP_FILE` when cleanup fails or when a
-heavy operation cannot safely complete. Tier gates inspect the marker after
-each tier. Do not run a later heavy tier when the marker exists. Preserve the
-marker and the sanitized failure classification for the report.
+The stop marker is created only when cleanup fails or a confirmed server-health failure occurs. An ordinary heavy-operation failure does not create the marker.
+Tier gates inspect the marker after each tier. Do not run a later heavy tier
+when the marker exists. Preserve the marker and the sanitized failure
+classification for the report.
 
 ## Result classification
 
