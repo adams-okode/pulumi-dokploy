@@ -81,7 +81,24 @@ func TestDestinationReadPreservesSecretWhenAPIOmitsIt(t *testing.T) {
 	r := Destination{client: fixedClient(s.API())}
 	read, err := r.Read(t.Context(), infer.ReadRequest[DestinationArgs, DestinationState]{ID: "d1", State: DestinationState{DestinationArgs: DestinationArgs{SecretAccessKey: "prior-secret"}}})
 	require.NoError(t, err)
-	require.Equal(t, "prior-secret", read.Inputs.SecretAccessKey)
+	requireLiveEqual(t, "destination.secretAccessKey", "prior-secret", read.Inputs.SecretAccessKey)
+}
+
+func TestDestinationReadReconstructsObservableFieldsWithoutWriteOnlySecret(t *testing.T) {
+	server := "srv-imported"
+	s := newScriptedServer(t, expectGET("/api/destination.one", map[string][]string{"destinationId": {"d-imported"}}, http.StatusOK,
+		`{"destinationId":"d-imported","name":"imported","provider":"s3","accessKey":"import-key","bucket":"import-bucket","region":"eu-west-1","endpoint":"https://s3.example.invalid","additionalFlags":["--checksum"],"serverId":"srv-imported"}`))
+	read, err := (Destination{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[DestinationArgs, DestinationState]{ID: "d-imported"})
+	require.NoError(t, err)
+	requireLiveEqual(t, "destination.name", "imported", read.Inputs.Name)
+	requireLiveEqual(t, "destination.provider", "s3", value(read.Inputs.Provider))
+	requireLiveEqual(t, "destination.accessKey", "import-key", read.Inputs.AccessKey)
+	requireLiveEqual(t, "destination.bucket", "import-bucket", read.Inputs.Bucket)
+	requireLiveEqual(t, "destination.region", "eu-west-1", read.Inputs.Region)
+	requireLiveEqual(t, "destination.endpoint", "https://s3.example.invalid", read.Inputs.Endpoint)
+	requireLiveEqual(t, "destination.additionalFlags", []string{"--checksum"}, read.Inputs.AdditionalFlags)
+	requireLiveEqual(t, "destination.serverId", server, value(read.Inputs.ServerID))
+	requireLiveEqual(t, "destination.secretAccessKey", "", read.Inputs.SecretAccessKey)
 }
 
 func TestDestinationUpdate(t *testing.T) {

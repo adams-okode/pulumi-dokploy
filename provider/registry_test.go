@@ -92,10 +92,34 @@ func TestRegistryReadPreservesPasswordAndHandlesNotFound(t *testing.T) {
 	r := Registry{client: fixedClient(s.API())}
 	read, err := r.Read(t.Context(), infer.ReadRequest[RegistryArgs, RegistryState]{ID: "r1", State: RegistryState{RegistryArgs: RegistryArgs{Password: "prior"}}})
 	require.NoError(t, err)
-	require.Equal(t, "prior", read.Inputs.Password)
+	requireLiveEqual(t, "registry.password", "prior", read.Inputs.Password)
 	missing, err := r.Read(t.Context(), infer.ReadRequest[RegistryArgs, RegistryState]{ID: "missing"})
 	require.NoError(t, err)
 	require.Empty(t, missing.ID)
+}
+
+func TestRegistryReadPreservesWriteOnlyPasswordFromPriorState(t *testing.T) {
+	prior := RegistryState{RegistryArgs: RegistryArgs{Password: "password-sentinel"}}
+	s := newScriptedServer(t, expectGET("/api/registry.one", map[string][]string{"registryId": {"r-prior"}}, http.StatusOK,
+		`{"registryId":"r-prior","registryName":"reg","registryUrl":"https://registry.example.invalid","username":"user","imagePrefix":"team/","serverId":"srv1"}`))
+	read, err := (Registry{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[RegistryArgs, RegistryState]{ID: "r-prior", State: prior})
+	require.NoError(t, err)
+	requireLiveEqual(t, "registry.password", "password-sentinel", read.Inputs.Password)
+	requireLiveEqual(t, "registry.imagePrefix", "team/", value(read.Inputs.ImagePrefix))
+	requireLiveEqual(t, "registry.serverId", "srv1", value(read.Inputs.ServerID))
+}
+
+func TestRegistryReadReconstructsObservableFieldsWithoutWriteOnlyPassword(t *testing.T) {
+	s := newScriptedServer(t, expectGET("/api/registry.one", map[string][]string{"registryId": {"r-imported"}}, http.StatusOK,
+		`{"registryId":"r-imported","registryName":"imported-reg","registryUrl":"https://registry.example.invalid","username":"import-user","imagePrefix":"prefix/","serverId":"srv-imported"}`))
+	read, err := (Registry{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[RegistryArgs, RegistryState]{ID: "r-imported"})
+	require.NoError(t, err)
+	requireLiveEqual(t, "registry.name", "imported-reg", read.Inputs.Name)
+	requireLiveEqual(t, "registry.username", "import-user", read.Inputs.Username)
+	requireLiveEqual(t, "registry.url", "https://registry.example.invalid", read.Inputs.URL)
+	requireLiveEqual(t, "registry.imagePrefix", "prefix/", value(read.Inputs.ImagePrefix))
+	requireLiveEqual(t, "registry.serverId", "srv-imported", value(read.Inputs.ServerID))
+	requireLiveEqual(t, "registry.password", "", read.Inputs.Password)
 }
 
 func TestRegistryReadSupportsImport(t *testing.T) {

@@ -2,6 +2,7 @@ package dokploy
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -45,12 +46,14 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, created.ID, read.State.ProjectID)
+		updatedName := read.Inputs.Name + "-updated"
 		updatedDescription := "updated by live test"
-		updated, err := r.Update(ctx, infer.UpdateRequest[ProjectArgs, ProjectState]{ID: created.ID, Inputs: ProjectArgs{Name: read.Inputs.Name, Description: &updatedDescription}, State: read.State})
+		updated, err := r.Update(ctx, infer.UpdateRequest[ProjectArgs, ProjectState]{ID: created.ID, Inputs: ProjectArgs{Name: updatedName, Description: &updatedDescription}, State: read.State})
 		requireNoError(t, err)
 		require.Equal(t, created.ID, updated.Output.ProjectID)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
+		require.Equal(t, updatedName, postUpdate.Inputs.Name)
 		require.Equal(t, updatedDescription, value(postUpdate.Inputs.Description))
 		imported, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
@@ -102,6 +105,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		ctx := liveContext(t, 2*time.Minute)
 		r := Destination{client: fixedClient(api)}
 		inputs := DestinationArgs{Name: liveRunName("destination"), Provider: stringPtr("s3"), AccessKey: "AKIALIVETEST", SecretAccessKey: "live-test-secret", Bucket: "live-test-bucket", Region: "us-east-1", Endpoint: "https://pulumi-acceptance.invalid"}
+		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
+			inputs.ServerID = &serverID
+		}
 		t.Cleanup(registerLiveSecrets(inputs.AccessKey, inputs.SecretAccessKey, inputs.Endpoint))
 		created, err := r.Create(ctx, infer.CreateRequest[DestinationArgs]{Inputs: inputs})
 		if created.ID != "" {
@@ -117,12 +123,30 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		read, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: created.ID})
 		requireNoError(t, err)
 		updatedInputs := read.Inputs
+		updatedInputs.Name += "-updated"
+		updatedInputs.AccessKey = "AKIALIVETESTUPDATED"
+		updatedInputs.SecretAccessKey = "live-test-secret-updated"
 		updatedInputs.Bucket += "-updated"
+		updatedInputs.Region = "us-west-2"
+		updatedInputs.Endpoint = "https://pulumi-acceptance-updated.invalid"
+		updatedInputs.AdditionalFlags = []string{"--checksum"}
+		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
+			updatedInputs.ServerID = &serverID
+		}
+		t.Cleanup(registerLiveSecrets(updatedInputs.AccessKey, updatedInputs.SecretAccessKey, updatedInputs.Endpoint))
 		_, err = r.Update(ctx, infer.UpdateRequest[DestinationArgs, DestinationState]{ID: created.ID, Inputs: updatedInputs, State: read.State})
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: created.ID})
 		requireNoError(t, err)
+		require.Equal(t, updatedInputs.Name, postUpdate.Inputs.Name)
+		requireLiveEqual(t, "destination.provider", value(updatedInputs.Provider), value(postUpdate.Inputs.Provider))
+		requireLiveEqual(t, "destination.accessKey", updatedInputs.AccessKey, postUpdate.Inputs.AccessKey)
+		requireLiveEqual(t, "destination.secretAccessKey", updatedInputs.SecretAccessKey, postUpdate.Inputs.SecretAccessKey)
 		require.Equal(t, updatedInputs.Bucket, postUpdate.Inputs.Bucket)
+		require.Equal(t, updatedInputs.Region, postUpdate.Inputs.Region)
+		requireLiveEqual(t, "destination.endpoint", updatedInputs.Endpoint, postUpdate.Inputs.Endpoint)
+		require.Equal(t, updatedInputs.AdditionalFlags, postUpdate.Inputs.AdditionalFlags)
+		requireLiveEqual(t, "destination.serverId", value(updatedInputs.ServerID), value(postUpdate.Inputs.ServerID))
 		imported, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, created.ID, imported.State.DestinationID)
@@ -186,6 +210,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		}
 		ctx := liveContext(t, 2*time.Minute)
 		r := Registry{client: fixedClient(api)}
+		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
+			args.ServerID = &serverID
+		}
 		created, err := r.Create(ctx, infer.CreateRequest[RegistryArgs]{Inputs: args})
 		if created.ID != "" {
 			deferLiveDelete(t, "registry", created.ID, func(ctx context.Context) error {
@@ -201,11 +228,26 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireNoError(t, err)
 		updatedInputs := read.Inputs
 		updatedInputs.Name += "-updated"
+		// Keep the configured connection values valid for the registry's
+		// prerequisite validation while exercising every update field.
+		if prefix := value(updatedInputs.ImagePrefix); prefix != "" {
+			updatedPrefix := prefix + "updated/"
+			updatedInputs.ImagePrefix = &updatedPrefix
+		}
+		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
+			updatedInputs.ServerID = &serverID
+		}
+		t.Cleanup(registerLiveSecrets(updatedInputs.Username, updatedInputs.Password, updatedInputs.URL, value(updatedInputs.ImagePrefix)))
 		_, err = r.Update(ctx, infer.UpdateRequest[RegistryArgs, RegistryState]{ID: created.ID, Inputs: updatedInputs, State: read.State})
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, updatedInputs.Name, postUpdate.Inputs.Name)
+		requireLiveEqual(t, "registry.username", updatedInputs.Username, postUpdate.Inputs.Username)
+		requireLiveEqual(t, "registry.password", updatedInputs.Password, postUpdate.Inputs.Password)
+		requireLiveEqual(t, "registry.url", updatedInputs.URL, postUpdate.Inputs.URL)
+		requireLiveEqual(t, "registry.imagePrefix", value(updatedInputs.ImagePrefix), value(postUpdate.Inputs.ImagePrefix))
+		requireLiveEqual(t, "registry.serverId", value(updatedInputs.ServerID), value(postUpdate.Inputs.ServerID))
 		imported, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, created.ID, imported.State.RegistryID)
@@ -232,11 +274,13 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		read, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: created.ID})
 		requireNoError(t, err)
 		updated := read.Inputs
+		updated.Name += "-updated"
 		updated.Color = stringPtr("#654321")
 		_, err = r.Update(ctx, infer.UpdateRequest[TagArgs, TagState]{ID: created.ID, Inputs: updated, State: read.State})
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: created.ID})
 		requireNoError(t, err)
+		require.Equal(t, updated.Name, postUpdate.Inputs.Name)
 		require.Equal(t, value(postUpdate.Inputs.Color), "#654321")
 		imported, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: created.ID})
 		requireNoError(t, err)
