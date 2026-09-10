@@ -18,6 +18,23 @@ Verification:
 - `go test ./... -count=1` — PASS
 - `git diff --check` — PASS
 
+## Remaining Follow-up Fix
+
+Create-time timeout handling now cleans partial resources while retaining the
+same heavy-operation lease, performs the follow-up probe through the central
+opt-in gate, and releases the lease once before returning the original error.
+Cleanup helpers that previously released leases defer that release while the
+follow-up is pending. Deterministic tests cover no-overlap probing and the
+disabled-acceptance timeout path without invoking `t.Skip`.
+
+Final verification:
+
+- `go test ./provider -run 'Test(ClassifyLiveServerHealthFailure|VerifyLiveServerHealth|HeavyOperationProbe|FailedHeavyOperationProbe|DisabledAcceptanceDoesNotInvokeHealthProbe|CreateTimeout|ServerHealthFailure|OrdinaryLiveResult|HeavyOperationCreateFailureReleasesAndCleansOwnership)' -count=1` — PASS
+- `env -u DOKPLOY_ACCEPTANCE go test ./provider -run 'TestLiveTier(2|3|4)' -count=1 -v` — PASS; all tiers skipped before probing
+- `go test ./provider -count=1` — PASS
+- `go test ./... -count=1` — PASS
+- `git diff --check` — PASS
+
 Concerns: live Dokploy execution was not performed because acceptance opt-in
 and credentials were not available. The probe intentionally uses an invalid
 project ID and treats responsive 4xx responses as healthy; it records only

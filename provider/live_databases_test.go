@@ -75,6 +75,10 @@ func finishDatabaseCleanup(t *testing.T, lease *liveHeavyOperationLease, kind, i
 		reportLiveCleanup(t, kind, id, err)
 		return false
 	}
+	if lease.holdForFollowUp {
+		lease.release(t)
+		return false
+	}
 	return lease.release(t)
 }
 

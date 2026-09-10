@@ -656,6 +656,44 @@ func TestDisabledAcceptanceDoesNotInvokeHealthProbe(t *testing.T) {
 	require.False(t, called)
 }
 
+func TestCreateTimeoutFollowUpProbeStaysUnderLease(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "1")
+	t.Setenv("DOKPLOY_ENDPOINT", "https://example.invalid")
+	t.Setenv("DOKPLOY_API_KEY", "test-key")
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	lease := beginLiveHeavyOperation(t, "timeout")
+	probeCalled := false
+	cleanupCalled := false
+	err := processLiveHeavyCreateError(t, lease, "partial", context.DeadlineExceeded, func() { cleanupCalled = true }, func(context.Context) error {
+		probeCalled = true
+		_, err := acquireLiveHeavyOperation(t.Context(), "overlap", nil)
+		require.Error(t, err)
+		return nil
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.True(t, cleanupCalled)
+	require.True(t, probeCalled)
+	require.True(t, lease.release(t))
+}
+
+func TestCreateTimeoutHandlerSkipsProbeWhenAcceptanceDisabled(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "")
+	t.Setenv("DOKPLOY_ENDPOINT", "")
+	t.Setenv("DOKPLOY_API_KEY", "")
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	lease := beginLiveHeavyOperation(t, "timeout")
+	called := false
+	err := processLiveHeavyCreateError(t, lease, "partial", context.DeadlineExceeded, func() {}, func(context.Context) error {
+		called = true
+		return errLiveServerHealthProbe
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, called)
+	require.True(t, lease.release(t))
+}
+
 func TestCleanupFailureCreatesNonSecretStopMarker(t *testing.T) {
 	resetLiveHarnessState()
 	t.Cleanup(resetLiveHarnessState)
@@ -749,6 +787,7 @@ func TestHeavyOperationCreateFailureReleasesAndCleansOwnership(t *testing.T) {
 	t.Cleanup(resetLiveHarnessState)
 	lease := beginLiveHeavyOperation(t, "postgres")
 	cleanupLiveHeavyCreateFailure(t, lease, "", context.Canceled, nil)
+	require.True(t, lease.release(t))
 	second := beginLiveHeavyOperation(t, "redis")
 	require.True(t, second.release(t))
 
@@ -756,6 +795,7 @@ func TestHeavyOperationCreateFailureReleasesAndCleansOwnership(t *testing.T) {
 	cleaned := false
 	cleanupLiveHeavyCreateFailure(t, lease, "partial-id", context.Canceled, func() { cleaned = true })
 	require.True(t, cleaned)
+	require.True(t, lease.release(t))
 	second = beginLiveHeavyOperation(t, "redis")
 	require.True(t, second.release(t))
 }

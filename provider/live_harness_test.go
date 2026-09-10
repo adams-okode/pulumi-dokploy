@@ -40,8 +40,10 @@ var liveHeavyOperation struct {
 }
 
 type liveHeavyOperationLease struct {
-	kind     string
-	released bool
+	kind             string
+	released         bool
+	holdForFollowUp  bool
+	releaseRequested bool
 }
 
 type liveCleanupOwner struct {
@@ -132,6 +134,10 @@ func (lease *liveHeavyOperationLease) release(t *testing.T) bool {
 	if lease.released {
 		return true
 	}
+	if lease.holdForFollowUp {
+		lease.releaseRequested = true
+		return true
+	}
 	if !endLiveHeavyOperation(lease.kind) {
 		t.Errorf("failed to release heavy live operation %q", lease.kind)
 		return false
@@ -152,20 +158,28 @@ func (lease *liveHeavyOperationLease) releaseIfNeeded(t *testing.T) {
 // synchronously before the test reports the fatal create failure.
 func handleLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func(), probes ...func(context.Context) error) {
 	t.Helper()
+	if err := processLiveHeavyCreateError(t, lease, id, createErr, cleanup, probes...); err != nil {
+		requireNoError(t, err)
+	}
+}
+
+func processLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func(), probes ...func(context.Context) error) error {
+	t.Helper()
+	lease.holdForFollowUp = createErr != nil
 	cleanupLiveHeavyCreateFailure(t, lease, id, createErr, cleanup)
 	if createErr != nil && classifyLiveServerHealthFailure(createErr) {
 		recordServerHealthFailure(lease.kind, errLiveServerHealthProbe)
 	} else if createErr != nil && errors.Is(createErr, context.DeadlineExceeded) {
 		for _, probe := range probes {
-			if probeErr := verifyLiveServerHealth(t.Context(), probe); probeErr != nil {
+			if probeErr := maybeVerifyLiveServerHealth(t.Context(), probe); probeErr != nil {
 				recordServerHealthFailure(lease.kind, probeErr)
 				break
 			}
 		}
 	}
-	if createErr != nil {
-		requireNoError(t, createErr)
-	}
+	lease.holdForFollowUp = false
+	lease.releaseIfNeeded(t)
+	return createErr
 }
 
 func cleanupLiveHeavyCreateFailure(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func()) {
@@ -176,7 +190,6 @@ func cleanupLiveHeavyCreateFailure(t *testing.T, lease *liveHeavyOperationLease,
 	if id != "" && cleanup != nil {
 		cleanup()
 	}
-	lease.releaseIfNeeded(t)
 }
 
 var liveResultStore struct {
