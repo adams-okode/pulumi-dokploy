@@ -176,8 +176,9 @@ func TestSuccessfulCreateRegistersCleanupAndExplicitDeleteReleasesIt(t *testing.
 	require.Equal(t, 1, deletes)
 }
 
-func TestExplicitDeleteReleasesOwnershipBeforeFailedAbsenceVerification(t *testing.T) {
-	owner := newLiveCleanupOwner(func() { t.Fatal("fallback cleanup must not run") })
+func TestExplicitDeleteRetainsOwnershipWhenAbsenceVerificationFails(t *testing.T) {
+	fallbackCalls := 0
+	owner := newLiveCleanupOwner(func() { fallbackCalls++ })
 	deleteCalls := 0
 	err := deleteAndVerifyLiveOwned(t.Context(), func() error {
 		deleteCalls++
@@ -186,6 +187,7 @@ func TestExplicitDeleteReleasesOwnershipBeforeFailedAbsenceVerification(t *testi
 	require.Error(t, err)
 	require.Equal(t, 1, deleteCalls)
 	owner.cleanupOnce()
+	require.Equal(t, 1, fallbackCalls)
 }
 
 func TestWorkloadLifecycleDiagnosticsExcludeUnstructuredFailureDetails(t *testing.T) {

@@ -75,8 +75,11 @@ func deleteAndVerifyLiveOwned(ctx context.Context, remove func() error, read fun
 	if err := remove(); err != nil && !client.IsNotFound(err) {
 		return err
 	}
-	release()
-	return waitForDatabaseAbsence(ctx, func(context.Context) (string, error) { return read() })
+	err := waitForDatabaseAbsence(ctx, func(context.Context) (string, error) { return read() })
+	if err == nil {
+		release()
+	}
+	return err
 }
 
 func beginLiveHeavyOperation(t *testing.T, kind string) *liveHeavyOperationLease {

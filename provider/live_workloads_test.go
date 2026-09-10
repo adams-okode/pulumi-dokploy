@@ -478,11 +478,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 				if !variant.ok {
 					t.Skip("dedicated source prerequisite variables are not configured")
 				}
-				if variant.source.Type == SourceDocker {
-					t.Cleanup(registerLiveSecrets(value(variant.source.Docker.RegistryURL), value(variant.source.Docker.Username), value(variant.source.Docker.Password)))
-				} else if variant.source.Type == SourceGitLab {
-					t.Cleanup(registerLiveSecrets(variant.source.GitLab.IntegrationID, variant.source.GitLab.Owner, variant.source.GitLab.Namespace, variant.source.GitLab.Repository))
-				}
+				t.Cleanup(registerLiveApplicationSourceMetadata(variant.source))
 				body := generated.ApplicationCreateJSONRequestBody{Name: liveRunName("application-" + variant.name), EnvironmentId: environmentID}
 				response, err := api.ApplicationCreateWithResponse(ctx, body)
 				requireNoError(t, err)
@@ -515,11 +511,13 @@ func TestLiveTier2Workloads(t *testing.T) {
 				imported, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
 				requireNoError(t, err)
 				assertLiveApplicationSource(t, variant.name, variant.source, imported.Inputs.Source)
-				err = deleteAndVerifyLiveOwned(ctx, func() error {
-					_, deleteErr := r.Delete(ctx, infer.DeleteRequest[ApplicationState]{ID: id})
+				cleanupCtx, cancelCleanup := cleanupContext()
+				defer cancelCleanup()
+				err = deleteAndVerifyLiveOwned(cleanupCtx, func() error {
+					_, deleteErr := r.Delete(cleanupCtx, infer.DeleteRequest[ApplicationState]{ID: id})
 					return deleteErr
 				}, func() (string, error) {
-					gone, readErr := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
+					gone, readErr := r.Read(cleanupCtx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
 					return gone.ID, readErr
 				}, release)
 				requireNoError(t, err)
@@ -648,6 +646,68 @@ func liveRegistryApplicationSource() (source ApplicationSource) {
 		return ApplicationSource{}
 	}
 	return ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "nginx:1.27", RegistryURL: &url, Username: &user, Password: &password}}
+}
+
+func registerLiveApplicationSourceMetadata(source ApplicationSource) func() {
+	values := []string{}
+	add := func(value string) {
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	addBuild := func(build ApplicationBuild) {
+		add(string(build.Type))
+		if build.Dockerfile != nil {
+			add(*build.Dockerfile)
+		}
+		if build.DockerContextPath != nil {
+			add(*build.DockerContextPath)
+		}
+		if build.DockerBuildStage != nil {
+			add(*build.DockerBuildStage)
+		}
+	}
+	switch source.Type {
+	case SourceGit:
+		add(source.Git.URL)
+		add(source.Git.Branch)
+		if source.Git.BuildPath != nil {
+			add(*source.Git.BuildPath)
+		}
+		if source.Git.SSHKeyID != nil {
+			add(*source.Git.SSHKeyID)
+		}
+		for _, path := range source.Git.WatchPaths {
+			add(path)
+		}
+		addBuild(source.Git.Build)
+	case SourceDocker:
+		add(source.Docker.Image)
+		if source.Docker.RegistryURL != nil {
+			add(*source.Docker.RegistryURL)
+		}
+		if source.Docker.Username != nil {
+			add(*source.Docker.Username)
+		}
+		if source.Docker.Password != nil {
+			add(*source.Docker.Password)
+		}
+	case SourceGitLab:
+		add(source.GitLab.IntegrationID)
+		add(strconv.Itoa(source.GitLab.ProjectID))
+		add(source.GitLab.Owner)
+		add(source.GitLab.Namespace)
+		add(source.GitLab.Repository)
+		add(source.GitLab.Branch)
+		if source.GitLab.BuildPath != nil {
+			add(*source.GitLab.BuildPath)
+		}
+		for _, path := range source.GitLab.WatchPaths {
+			add(path)
+		}
+		addBuild(source.GitLab.Build)
+	}
+	return registerLiveSecrets(values...)
 }
 
 func liveGitLabApplicationSource() (source ApplicationSource) {
