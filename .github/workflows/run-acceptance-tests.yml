@@ -201,6 +201,7 @@ jobs:
           if [ -x "$provider_binary" ]; then
             tar -zcf "$archive" -C "${{ github.workspace }}/bin" "pulumi-resource-${{ env.PROVIDER }}"
           else
+            rm -f "$archive"
             printf '%s\n' 'provider binary unavailable' > "$status"
           fi
       - name: Upload artifacts

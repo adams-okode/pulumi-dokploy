@@ -21,3 +21,18 @@ Verification:
 - `git diff --check` — PASS
 
 Concerns: live acceptance execution was not run locally because it requires protected Dokploy credentials. The worktree retains pre-existing unrelated changes (`.superpowers/sdd/task-1-report.md` deletion and `.superpowers/sdd-tools/` untracked content).
+
+## Quality finding follow-up
+
+Added contract coverage proving the failure report is immediately followed by
+the tar step and then upload, with both artifact steps guarded by `always()`.
+The fallback now removes any stale archive before writing exactly the fixed
+`provider binary unavailable` marker, and the test rejects tar, `ls`, and
+`find` commands in that fallback branch.
+
+Follow-up verification:
+
+- `go test ./provider -run TestOwnedWorkflow -count=1` — PASS
+- `go test ./provider -run 'TestOwnedWorkflow|TestRegistryMetadata' -count=1` — PASS
+- `go test ./...` — PASS
+- `git diff --check` — PASS
