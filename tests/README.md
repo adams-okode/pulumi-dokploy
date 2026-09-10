@@ -91,7 +91,13 @@ tiers finish and their stop-marker checks pass.
 
 Registry coverage requires `DOKPLOY_REGISTRY_URL`,
 `DOKPLOY_REGISTRY_USERNAME`, `DOKPLOY_REGISTRY_PASSWORD`, and, when needed,
-`DOKPLOY_REGISTRY_IMAGE_PREFIX`. GitLab coverage requires
+`DOKPLOY_REGISTRY_IMAGE_PREFIX`. Complete Registry mutation coverage additionally
+requires four distinct, valid values: `DOKPLOY_REGISTRY_UPDATED_URL`,
+`DOKPLOY_REGISTRY_UPDATED_USERNAME`, `DOKPLOY_REGISTRY_UPDATED_PASSWORD`, and
+`DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX`; otherwise that mutation subtest skips.
+Destination provider mutation requires a separately validated provider value in
+`DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER`; otherwise only the other
+Destination fields are mutated. GitLab coverage requires
 `DOKPLOY_GITLAB_INTEGRATION_ID`, `DOKPLOY_GITLAB_PROJECT_ID`,
 `DOKPLOY_GITLAB_OWNER`, `DOKPLOY_GITLAB_NAMESPACE`,
 `DOKPLOY_GITLAB_REPOSITORY`, and `DOKPLOY_GITLAB_BRANCH`, plus the configured

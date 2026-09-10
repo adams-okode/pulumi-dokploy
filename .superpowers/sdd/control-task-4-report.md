@@ -47,3 +47,22 @@
 - `ced216a4a807ceb05d1ea48499dc4751ccf6ec07` — implementation and test
   coverage.
 - This report is committed in the follow-up documentation commit.
+
+## Review-fix evidence
+
+- RED: `go test ./provider -run 'TestLive(RegistryUpdatedArgs|DestinationUpdatedProvider)' -count=1`
+  failed to compile before the gate helpers existed (`undefined:
+  liveRegistryUpdatedArgs` and `undefined: liveDestinationUpdatedProvider`).
+- GREEN: the same helper tests pass after implementation.
+- ID-only reconstruction tests now assert only API-observable fields. Secret and
+  password preservation is asserted only with prior state.
+- Registry's complete mutation case explicitly skips unless all four distinct,
+  separately valid update values are configured through
+  `DOKPLOY_REGISTRY_UPDATED_URL`, `DOKPLOY_REGISTRY_UPDATED_USERNAME`,
+  `DOKPLOY_REGISTRY_UPDATED_PASSWORD`, and
+  `DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX`. All are registered before Update.
+- Destination provider mutation explicitly skips unless
+  `DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER` is configured; the other
+  Destination fields are still mutated and verified.
+- Workflow and `tests/README.md` document the optional prerequisites; the
+  workflow passes them only to Tier 1.

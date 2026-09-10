@@ -98,7 +98,6 @@ func TestDestinationReadReconstructsObservableFieldsWithoutWriteOnlySecret(t *te
 	requireLiveEqual(t, "destination.endpoint", "https://s3.example.invalid", read.Inputs.Endpoint)
 	requireLiveEqual(t, "destination.additionalFlags", []string{"--checksum"}, read.Inputs.AdditionalFlags)
 	requireLiveEqual(t, "destination.serverId", server, value(read.Inputs.ServerID))
-	requireLiveEqual(t, "destination.secretAccessKey", "", read.Inputs.SecretAccessKey)
 }
 
 func TestDestinationUpdate(t *testing.T) {

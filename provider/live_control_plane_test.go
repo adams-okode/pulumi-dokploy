@@ -22,6 +22,69 @@ func directEnvironmentUpdate(ctx context.Context, api *client.Client, environmen
 	return err
 }
 
+func TestLiveRegistryUpdatedArgsRequiresCompleteAlternateConnection(t *testing.T) {
+	base := RegistryArgs{Name: "registry", URL: "https://registry.example", Username: "user", Password: "password"}
+	for name := range map[string]string{
+		"url": "URL", "username": "USERNAME", "password": "PASSWORD", "prefix": "IMAGE_PREFIX",
+	} {
+		t.Setenv("DOKPLOY_REGISTRY_UPDATED_URL", "https://registry-updated.example")
+		t.Setenv("DOKPLOY_REGISTRY_UPDATED_USERNAME", "updated-user")
+		t.Setenv("DOKPLOY_REGISTRY_UPDATED_PASSWORD", "updated-password")
+		t.Setenv("DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX", "updated/")
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("DOKPLOY_REGISTRY_UPDATED_"+map[string]string{"url": "URL", "username": "USERNAME", "password": "PASSWORD", "prefix": "IMAGE_PREFIX"}[name], "")
+			_, ok := liveRegistryUpdatedArgs(base)
+			require.False(t, ok)
+		})
+	}
+}
+
+func TestLiveRegistryUpdatedArgsAcceptsDistinctConfiguredConnection(t *testing.T) {
+	base := RegistryArgs{Name: "registry", URL: "https://registry.example", Username: "user", Password: "password"}
+	t.Setenv("DOKPLOY_REGISTRY_UPDATED_URL", "https://registry-updated.example")
+	t.Setenv("DOKPLOY_REGISTRY_UPDATED_USERNAME", "updated-user")
+	t.Setenv("DOKPLOY_REGISTRY_UPDATED_PASSWORD", "updated-password")
+	t.Setenv("DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX", "updated/")
+	updated, ok := liveRegistryUpdatedArgs(base)
+	require.True(t, ok)
+	require.NotEqual(t, base.URL, updated.URL)
+	require.NotEqual(t, base.Username, updated.Username)
+	require.NotEqual(t, base.Password, updated.Password)
+	require.NotEqual(t, value(base.ImagePrefix), value(updated.ImagePrefix))
+}
+
+func TestLiveDestinationUpdatedProviderRequiresExplicitAlternate(t *testing.T) {
+	base := "s3"
+	t.Setenv("DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER", "")
+	updated, ok := liveDestinationUpdatedProvider(&base)
+	require.False(t, ok)
+	require.Equal(t, "s3", value(updated))
+	t.Setenv("DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER", "compatible-provider")
+	updated, ok = liveDestinationUpdatedProvider(&base)
+	require.True(t, ok)
+	require.Equal(t, "compatible-provider", value(updated))
+}
+
+func liveRegistryUpdatedArgs(base RegistryArgs) (RegistryArgs, bool) {
+	url := os.Getenv("DOKPLOY_REGISTRY_UPDATED_URL")
+	username := os.Getenv("DOKPLOY_REGISTRY_UPDATED_USERNAME")
+	password := os.Getenv("DOKPLOY_REGISTRY_UPDATED_PASSWORD")
+	prefix := os.Getenv("DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX")
+	if url == "" || username == "" || password == "" || prefix == "" ||
+		url == base.URL || username == base.Username || password == base.Password || prefix == value(base.ImagePrefix) {
+		return RegistryArgs{}, false
+	}
+	return RegistryArgs{URL: url, Username: username, Password: password, ImagePrefix: &prefix}, true
+}
+
+func liveDestinationUpdatedProvider(base *string) (*string, bool) {
+	updated := os.Getenv("DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER")
+	if updated == "" || (base != nil && updated == *base) {
+		return base, false
+	}
+	return &updated, true
+}
+
 // TestLiveTier1ControlPlane is deliberately serial: these are the low-load
 // control-plane checks that establish fixtures for the heavier live tiers.
 func TestLiveTier1ControlPlane(t *testing.T) {
@@ -124,6 +187,13 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireNoError(t, err)
 		updatedInputs := read.Inputs
 		updatedInputs.Name += "-updated"
+		updatedProvider, providerConfigured := liveDestinationUpdatedProvider(updatedInputs.Provider)
+		if !providerConfigured {
+			t.Run("provider mutation", func(t *testing.T) {
+				t.Skip("DOKPLOY_ACCEPTANCE_DESTINATION_UPDATED_PROVIDER is not configured with a safe accepted provider")
+			})
+		}
+		updatedInputs.Provider = updatedProvider
 		updatedInputs.AccessKey = "AKIALIVETESTUPDATED"
 		updatedInputs.SecretAccessKey = "live-test-secret-updated"
 		updatedInputs.Bucket += "-updated"
@@ -213,6 +283,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
 			args.ServerID = &serverID
 		}
+		t.Cleanup(registerLiveSecrets(args.Username, args.Password, args.URL, value(args.ImagePrefix)))
 		created, err := r.Create(ctx, infer.CreateRequest[RegistryArgs]{Inputs: args})
 		if created.ID != "" {
 			deferLiveDelete(t, "registry", created.ID, func(ctx context.Context) error {
@@ -226,14 +297,11 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireNoError(t, err)
 		read, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
-		updatedInputs := read.Inputs
-		updatedInputs.Name += "-updated"
-		// Keep the configured connection values valid for the registry's
-		// prerequisite validation while exercising every update field.
-		if prefix := value(updatedInputs.ImagePrefix); prefix != "" {
-			updatedPrefix := prefix + "updated/"
-			updatedInputs.ImagePrefix = &updatedPrefix
+		updatedInputs, completeMutation := liveRegistryUpdatedArgs(read.Inputs)
+		if !completeMutation {
+			t.Skip("complete Registry mutation requires distinct valid DOKPLOY_REGISTRY_UPDATED_URL, DOKPLOY_REGISTRY_UPDATED_USERNAME, DOKPLOY_REGISTRY_UPDATED_PASSWORD, and DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX")
 		}
+		updatedInputs.Name = read.Inputs.Name + "-updated"
 		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
 			updatedInputs.ServerID = &serverID
 		}

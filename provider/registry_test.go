@@ -119,7 +119,6 @@ func TestRegistryReadReconstructsObservableFieldsWithoutWriteOnlyPassword(t *tes
 	requireLiveEqual(t, "registry.url", "https://registry.example.invalid", read.Inputs.URL)
 	requireLiveEqual(t, "registry.imagePrefix", "prefix/", value(read.Inputs.ImagePrefix))
 	requireLiveEqual(t, "registry.serverId", "srv-imported", value(read.Inputs.ServerID))
-	requireLiveEqual(t, "registry.password", "", read.Inputs.Password)
 }
 
 func TestRegistryReadSupportsImport(t *testing.T) {
