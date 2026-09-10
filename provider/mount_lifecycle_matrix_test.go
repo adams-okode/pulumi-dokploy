@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client/generated"
+	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 	"github.com/stretchr/testify/require"
 )
@@ -195,6 +196,81 @@ func TestMountUpdateBodyAndRedeployMatrix(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestMountDiffCartesianMatrix(t *testing.T) {
+	for _, target := range mountLifecycleTargetCases() {
+		for _, mountType := range []string{mountTypeBind, mountTypeVolume, mountTypeFile} {
+			t.Run(target.name+"/"+mountType, func(t *testing.T) {
+				base := mountArgsForMatrix(mountType, target.idField, target.id)
+				mutable := base
+				mutable.MountPath += "-updated"
+				switch mountType {
+				case mountTypeBind:
+					mutable.HostPath = stringPtr("/updated-host")
+				case mountTypeVolume:
+					mutable.VolumeName = stringPtr("updated-volume")
+				case mountTypeFile:
+					mutable.FilePath, mutable.Content = stringPtr("/updated-file"), stringPtr("updated-content")
+				}
+				diff, err := (Mount{}).Diff(t.Context(), infer.DiffRequest[MountArgs, MountState]{Inputs: mutable, State: MountState{MountArgs: base}})
+				require.NoError(t, err)
+				require.Equal(t, p.Update, diff.DetailedDiff["mountPath"].Kind)
+				for _, field := range mountMutableFields(mountType) {
+					require.Equal(t, p.Update, diff.DetailedDiff[field].Kind, "%s/%s/%s", target.name, mountType, field)
+				}
+
+				replacement := base
+				replacement.Type = nextMountType(mountType)
+				clearMountTarget(&replacement)
+				setMountTarget(&replacement, target.idField, target.id+"-replacement")
+				diff, err = (Mount{}).Diff(t.Context(), infer.DiffRequest[MountArgs, MountState]{Inputs: replacement, State: MountState{MountArgs: base}})
+				require.NoError(t, err)
+				require.Equal(t, p.UpdateReplace, diff.DetailedDiff["type"].Kind)
+				require.Equal(t, p.UpdateReplace, diff.DetailedDiff[target.idField].Kind)
+			})
+		}
+	}
+}
+
+func mountArgsForMatrix(mountType, targetField, targetID string) MountArgs {
+	args := MountArgs{Type: mountType, MountPath: "/data"}
+	setMountTarget(&args, targetField, targetID)
+	switch mountType {
+	case mountTypeBind:
+		args.HostPath = stringPtr("/host")
+	case mountTypeVolume:
+		args.VolumeName = stringPtr("volume")
+	case mountTypeFile:
+		args.FilePath, args.Content = stringPtr("/etc/config"), stringPtr("content")
+	}
+	return args
+}
+
+func mountMutableFields(mountType string) []string {
+	switch mountType {
+	case mountTypeBind:
+		return []string{"hostPath"}
+	case mountTypeVolume:
+		return []string{"volumeName"}
+	default:
+		return []string{"filePath", "content"}
+	}
+}
+
+func nextMountType(mountType string) string {
+	if mountType == mountTypeBind {
+		return mountTypeVolume
+	}
+	if mountType == mountTypeVolume {
+		return mountTypeFile
+	}
+	return mountTypeBind
+}
+
+func clearMountTarget(args *MountArgs) {
+	args.ApplicationID, args.ComposeID, args.PostgresID = nil, nil, nil
+	args.MySQLID, args.MariaDBID, args.RedisID = nil, nil, nil
 }
 
 func TestMountDeleteBodyAndRedeployMatrix(t *testing.T) {

@@ -276,7 +276,6 @@ func TestLiveTier2Workloads(t *testing.T) {
 	for _, target := range workloadTargets {
 		target := target
 		t.Run("Mounts/"+target.name, func(t *testing.T) {
-			r := Mount{client: fixedClient(api)}
 			mounts := []MountArgs{
 				{Type: mountTypeBind, MountPath: "/mnt/bind", HostPath: stringPtr(filepath.Join("/tmp", liveRunName("mount")))},
 				{Type: mountTypeVolume, MountPath: "/mnt/volume", VolumeName: stringPtr(liveRunName("volume"))},
@@ -297,83 +296,13 @@ func TestLiveTier2Workloads(t *testing.T) {
 					} else {
 						inputs.ApplicationID = &target.id
 					}
-					t.Cleanup(registerLiveSecrets(value(inputs.Content), value(inputs.HostPath), value(inputs.VolumeName)))
-					targetPresent, targetReady, readErr := readLiveWorkloadTarget(ctx, api, target.id, target.compose)
-					requireWorkloadLifecycleNoError(t, "mount", readErr)
-					if !targetPresent || !targetReady {
-						classification, classificationErr := classifyWorkloadCreateAttempt("mount", 0, "", mountCreateRequestKeys(inputs), targetPresent, targetReady)
-						requireNoError(t, classificationErr)
-						t.Fatalf("workload target unavailable: %s", classification)
-					}
-					created, err := r.Create(ctx, infer.CreateRequest[MountArgs]{Inputs: inputs})
-					cleanupAfterCreateError(t, "mount", created.ID, err, func(c context.Context) error {
-						_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
-						return e
-					}, func(c context.Context) (string, error) {
-						v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-						return v.ID, e
-					})
-					release := func() {}
-					if err == nil {
-						release = registerLiveCleanup(t, "mount", created.ID, func(c context.Context) error {
-							_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
-							return e
-						}, func(c context.Context) (string, error) {
-							v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-							return v.ID, e
-						})
-					}
-					requireWorkloadCreateNoError(t, "mount", err, mountCreateRequestKeys(inputs), targetPresent, targetReady, "Mount/"+target.name+"/"+inputs.Type)
-					read, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: created.Output})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					updated := read.Inputs
-					updated.MountPath += "-updated"
-					changed, err := r.Update(ctx, infer.UpdateRequest[MountArgs, MountState]{ID: created.ID, Inputs: updated, State: read.State})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					postUpdate, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: changed.Output})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					requireLiveEqual(t, "mount.mountPath", updated.MountPath, postUpdate.Inputs.MountPath)
-					requireLiveEqual(t, "mount.type", updated.Type, postUpdate.Inputs.Type)
-					switch updated.Type {
-					case mountTypeBind:
-						requireLiveEqual(t, "mount.hostPath", updated.HostPath, postUpdate.Inputs.HostPath)
-					case mountTypeVolume:
-						requireLiveEqual(t, "mount.volumeName", updated.VolumeName, postUpdate.Inputs.VolumeName)
-					case mountTypeFile:
-						requireLiveEqual(t, "mount.filePath", updated.FilePath, postUpdate.Inputs.FilePath)
-						requireLiveEqual(t, "mount.content", updated.Content, postUpdate.Inputs.Content)
-					}
-					imported, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					requireLiveEqual(t, "mount.mountId", created.ID, imported.State.MountID)
-					replacement := mountReplacement(postUpdate.Inputs, inputs.Type)
-					diff, err := r.Diff(ctx, infer.DiffRequest[MountArgs, MountState]{ID: created.ID, Inputs: replacement, State: postUpdate.State})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					requireLiveDiffKind(t, diff.DetailedDiff, "type", p.UpdateReplace)
-					targetReplacement := replacement
+					targetReplacement := inputs
 					if target.compose {
-						targetReplacement.ApplicationID, targetReplacement.ComposeID = nil, &applicationID
+						targetReplacement.ApplicationID, targetReplacement.ComposeID = &applicationID, nil
 					} else {
-						targetReplacement.ApplicationID, targetReplacement.ComposeID = &composeID, nil
+						targetReplacement.ApplicationID, targetReplacement.ComposeID = nil, &composeID
 					}
-					diff, err = r.Diff(ctx, infer.DiffRequest[MountArgs, MountState]{ID: created.ID, Inputs: targetReplacement, State: postUpdate.State})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					targetField := "applicationId"
-					if target.compose {
-						targetField = "composeId"
-					}
-					requireLiveDiffKind(t, diff.DetailedDiff, targetField, p.UpdateReplace)
-					err = deleteAndVerifyLiveOwned(ctx, func() error {
-						_, e := r.Delete(ctx, infer.DeleteRequest[MountState]{ID: created.ID, State: imported.State})
-						return e
-					}, func() (string, error) {
-						gone, e := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-						return gone.ID, e
-					}, release)
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					gone, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-					requireWorkloadLifecycleNoError(t, "mount", err)
-					requireLiveEqual(t, "mount.id after delete", "", gone.ID)
+					runLiveMountLifecycle(t, ctx, api, inputs, targetReplacement)
 				})
 			}
 		})
@@ -382,7 +311,18 @@ func TestLiveTier2Workloads(t *testing.T) {
 	// Dispatch-only cases prove every supported target route without adding an
 	// update/redeploy cycle to the matrix. Each database fixture is created and
 	// removed before the next one is started.
-	for _, target := range []string{"compose", "postgres", "mysql", "mariadb", "redis"} {
+	t.Run("MountDispatch/postgres", func(t *testing.T) {
+		fixture := createDispatchDatabase(t, ctx, api, environmentID, "postgres")
+		mount := MountArgs{Type: mountTypeBind, MountPath: "/mnt/postgres", HostPath: stringPtr(filepath.Join("/tmp", liveRunName("postgres-mount"))), PostgresID: &fixture.id}
+		t.Cleanup(registerLiveSecrets(value(mount.HostPath)))
+		targetReplacement := mount
+		targetReplacement.PostgresID = nil
+		targetReplacement.ApplicationID = &applicationID
+		runLiveMountLifecycle(t, ctx, api, mount, targetReplacement)
+		fixture.cleanup(t)
+	})
+
+	for _, target := range []string{"compose", "mysql", "mariadb", "redis"} {
 		target := target
 		t.Run("MountDispatch/"+target, func(t *testing.T) {
 			var targetID string
@@ -850,6 +790,90 @@ func mountReplacement(input MountArgs, currentType string) MountArgs {
 		input.Type, input.HostPath = mountTypeBind, stringPtr(filepath.Join("/tmp", liveRunName("replacement-bind")))
 	}
 	return input
+}
+
+func runLiveMountLifecycle(t *testing.T, ctx context.Context, api *client.Client, inputs, targetReplacement MountArgs) {
+	t.Helper()
+	r := Mount{client: fixedClient(api)}
+	t.Cleanup(registerLiveSecrets(value(inputs.Content), value(inputs.HostPath), value(inputs.VolumeName)))
+	targetID := mountTargetID(inputs, mountServiceType(inputs))
+	compose := inputs.ComposeID != nil
+	targetPresent, targetReady, err := readLiveWorkloadTarget(ctx, api, targetID, compose)
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	if !targetPresent || !targetReady {
+		classification, classificationErr := classifyWorkloadCreateAttempt("mount", 0, "", mountCreateRequestKeys(inputs), targetPresent, targetReady)
+		requireNoError(t, classificationErr)
+		t.Fatalf("workload target unavailable: %s", classification)
+	}
+	created, err := r.Create(ctx, infer.CreateRequest[MountArgs]{Inputs: inputs})
+	// Ownership is registered before the create result is asserted so a partial
+	// create cannot outlive this subtest.
+	release := registerLiveCleanup(t, "mount", created.ID, func(c context.Context) error {
+		_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
+		return e
+	}, func(c context.Context) (string, error) {
+		v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+		return v.ID, e
+	})
+	requireWorkloadCreateNoError(t, "mount", err, mountCreateRequestKeys(inputs), targetPresent, targetReady, "Mount")
+
+	read, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: created.Output})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	updated := read.Inputs
+	updated.MountPath += "-updated"
+	changed, err := r.Update(ctx, infer.UpdateRequest[MountArgs, MountState]{ID: created.ID, Inputs: updated, State: read.State})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	postUpdate, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: changed.Output})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	requireLiveEqual(t, "mount.mountPath", updated.MountPath, postUpdate.Inputs.MountPath)
+	requireLiveEqual(t, "mount.type", updated.Type, postUpdate.Inputs.Type)
+	switch updated.Type {
+	case mountTypeBind:
+		requireLiveEqual(t, "mount.hostPath", updated.HostPath, postUpdate.Inputs.HostPath)
+	case mountTypeVolume:
+		requireLiveEqual(t, "mount.volumeName", updated.VolumeName, postUpdate.Inputs.VolumeName)
+	case mountTypeFile:
+		requireLiveEqual(t, "mount.filePath", updated.FilePath, postUpdate.Inputs.FilePath)
+		requireLiveEqual(t, "mount.content", updated.Content, postUpdate.Inputs.Content)
+	}
+	imported, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	requireLiveEqual(t, "mount.mountId", created.ID, imported.State.MountID)
+
+	typeReplacement := mountReplacement(postUpdate.Inputs, postUpdate.Inputs.Type)
+	diff, err := r.Diff(ctx, infer.DiffRequest[MountArgs, MountState]{ID: created.ID, Inputs: typeReplacement, State: postUpdate.State})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	requireLiveDiffKind(t, diff.DetailedDiff, "type", p.UpdateReplace)
+	diff, err = r.Diff(ctx, infer.DiffRequest[MountArgs, MountState]{ID: created.ID, Inputs: targetReplacement, State: postUpdate.State})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	targetField := "applicationId"
+	if targetReplacement.ComposeID != nil {
+		targetField = "composeId"
+	} else if targetReplacement.PostgresID != nil {
+		targetField = "postgresId"
+	}
+	requireLiveDiffKind(t, diff.DetailedDiff, targetField, p.UpdateReplace)
+
+	err = deleteAndVerifyLiveOwned(ctx, func() error {
+		_, e := r.Delete(ctx, infer.DeleteRequest[MountState]{ID: created.ID, State: imported.State})
+		return e
+	}, func() (string, error) {
+		gone, e := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+		return gone.ID, e
+	}, release)
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	gone, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+	requireWorkloadLifecycleNoError(t, "mount", err)
+	requireLiveEqual(t, "mount.id after delete", "", gone.ID)
+}
+
+func mountServiceType(inputs MountArgs) string {
+	for _, target := range mountLifecycleTargetCases() {
+		if mountTargetID(inputs, target.serviceType) != "" {
+			return target.serviceType
+		}
+	}
+	return "application"
 }
 
 func targetIDField(serviceType string) string {
