@@ -457,8 +457,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 		})
 	}
 
-	// Source variants are metadata-only checks. They deliberately configure a
-	// bare resource and do not deploy or clone anything.
+	// Source variants configure bare resources and do not deploy or clone
+	// anything. Git is always available; external integrations are gated.
 	t.Run("SourceVariants", func(t *testing.T) {
 		registrySource := liveRegistryApplicationSource()
 		gitLabSource := liveGitLabApplicationSource()
@@ -478,6 +478,11 @@ func TestLiveTier2Workloads(t *testing.T) {
 				if !variant.ok {
 					t.Skip("dedicated source prerequisite variables are not configured")
 				}
+				if variant.source.Type == SourceDocker {
+					t.Cleanup(registerLiveSecrets(value(variant.source.Docker.RegistryURL), value(variant.source.Docker.Username), value(variant.source.Docker.Password)))
+				} else if variant.source.Type == SourceGitLab {
+					t.Cleanup(registerLiveSecrets(variant.source.GitLab.IntegrationID, variant.source.GitLab.Owner, variant.source.GitLab.Namespace, variant.source.GitLab.Repository))
+				}
 				body := generated.ApplicationCreateJSONRequestBody{Name: liveRunName("application-" + variant.name), EnvironmentId: environmentID}
 				response, err := api.ApplicationCreateWithResponse(ctx, body)
 				requireNoError(t, err)
@@ -485,10 +490,33 @@ func TestLiveTier2Workloads(t *testing.T) {
 				require.NotNil(t, response.JSON200.ApplicationId)
 				id := *response.JSON200.ApplicationId
 				cleanupDirectApplication(t, api, id)
+				r := Application{client: fixedClient(api)}
 				requireNoError(t, configureApplicationSource(ctx, api, id, variant.source))
-				read, err := (Application{client: fixedClient(api)}).Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
+				requireNoError(t, configureApplicationBuild(ctx, api, id, variant.source))
+				read, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: ApplicationState{ApplicationArgs: ApplicationArgs{Source: variant.source}}})
 				requireNoError(t, err)
-				require.Equal(t, variant.source.Type, read.Inputs.Source.Type)
+				assertLiveApplicationSource(t, variant.name, variant.source, read.Inputs.Source)
+				if variant.source.Type == SourceDocker {
+					requireLiveEqual(t, "application.source.docker.password", variant.source.Docker.Password, read.Inputs.Source.Docker.Password)
+				}
+				updated := read.Inputs
+				updated.Description = stringPtr("source variant metadata update")
+				_, err = r.Update(ctx, infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: id, Inputs: updated, State: read.State})
+				requireNoError(t, err)
+				postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: read.State})
+				requireNoError(t, err)
+				assertLiveApplicationSource(t, variant.name, variant.source, postUpdate.Inputs.Source)
+				imported, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
+				requireNoError(t, err)
+				assertLiveApplicationSource(t, variant.name, variant.source, imported.Inputs.Source)
+				err = deleteAndVerifyLiveOwned(ctx, func() error {
+					_, deleteErr := r.Delete(ctx, infer.DeleteRequest[ApplicationState]{ID: id})
+					return deleteErr
+				}, func() (string, error) {
+					gone, readErr := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
+					return gone.ID, readErr
+				}, func() {})
+				requireNoError(t, err)
 			})
 		}
 		t.Run("compose-git", func(t *testing.T) {

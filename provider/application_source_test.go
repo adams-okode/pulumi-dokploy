@@ -2,9 +2,11 @@ package dokploy
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	p "github.com/pulumi/pulumi-go-provider"
+	"github.com/pulumi/pulumi-go-provider/infer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +26,100 @@ func TestApplicationGitSourceSavesAndClearsSSHKey(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestApplicationSourceIDOnlyReadReconstructsAllFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     ApplicationSource
+	}{
+		{
+			name:     "git",
+			response: `{"applicationId":"a1","type":"git","customGitUrl":"https://git.test/repo","customGitBranch":"release","customGitBuildPath":"services/api","customGitSSHKeyId":"ssh-1","watchPaths":["services/**","README.md"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Containerfile","dockerContextPath":"services/api","dockerBuildStage":"production"}`,
+			want: ApplicationSource{Type: SourceGit, Git: &GitApplicationSource{
+				URL: "https://git.test/repo", Branch: "release", BuildPath: stringPtr("services/api"), SSHKeyID: stringPtr("ssh-1"),
+				WatchPaths: []string{"services/**", "README.md"}, EnableSubmodules: true,
+				Build: ApplicationBuild{Type: BuildDockerfile, Dockerfile: stringPtr("Containerfile"), DockerContextPath: stringPtr("services/api"), DockerBuildStage: stringPtr("production")},
+			}}},
+		{
+			name:     "docker",
+			response: `{"applicationId":"a1","type":"docker","dockerImage":"registry.test/team/api:1","registryUrl":"https://registry.test","username":"alice"}`,
+			want:     ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "registry.test/team/api:1", RegistryURL: stringPtr("https://registry.test"), Username: stringPtr("alice")}},
+		},
+		{
+			name:     "gitlab",
+			response: `{"applicationId":"a1","type":"gitlab","gitlabId":"integration-1","gitlabProjectId":42,"gitlabOwner":"owner","gitlabPathNamespace":"platform/api","gitlabRepository":"service","gitlabBranch":"main","gitlabBuildPath":".","watchPaths":["cmd/**"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Dockerfile","dockerContextPath":".","dockerBuildStage":"release"}`,
+			want: ApplicationSource{Type: SourceGitLab, GitLab: &GitLabAppSource{
+				IntegrationID: "integration-1", ProjectID: 42, Owner: "owner", Namespace: "platform/api", Repository: "service", Branch: "main", BuildPath: stringPtr("."),
+				WatchPaths: []string{"cmd/**"}, EnableSubmodules: true,
+				Build: ApplicationBuild{Type: BuildDockerfile, Dockerfile: stringPtr("Dockerfile"), DockerContextPath: stringPtr("."), DockerBuildStage: stringPtr("release")},
+			}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScriptedServer(t, expectGET("/api/application.one", map[string][]string{"applicationId": {"a1"}}, http.StatusOK, tc.response))
+			got, err := (Application{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: "a1"})
+			require.NoError(t, err)
+			assertApplicationSourceFields(t, tc.want, got.Inputs.Source)
+		})
+	}
+}
+
+func TestApplicationSourceWriteOnlySecretsArePreserved(t *testing.T) {
+	password := "write-only-password"
+	s := newScriptedServer(t, expectGET("/api/application.one", map[string][]string{"applicationId": {"a1"}}, http.StatusOK, `{"applicationId":"a1","type":"docker","dockerImage":"nginx:1.27","registryUrl":"https://registry.test","username":"alice"}`))
+	prior := ApplicationState{ApplicationArgs: ApplicationArgs{Source: ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Password: &password}}}}
+	got, err := (Application{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: "a1", State: prior})
+	require.NoError(t, err)
+	requireLiveEqual(t, "application.source.docker.password", &password, got.Inputs.Source.Docker.Password)
+}
+
+func assertApplicationSourceFields(t *testing.T, want, got ApplicationSource) {
+	t.Helper()
+	require.Equal(t, want.Type, got.Type)
+	switch want.Type {
+	case SourceGit:
+		requireLiveEqual(t, "application.source.git.url", want.Git.URL, got.Git.URL)
+		requireLiveEqual(t, "application.source.git.branch", want.Git.Branch, got.Git.Branch)
+		requireLiveEqual(t, "application.source.git.buildPath", want.Git.BuildPath, got.Git.BuildPath)
+		requireLiveEqual(t, "application.source.git.sshKeyId", want.Git.SSHKeyID, got.Git.SSHKeyID)
+		requireLiveEqual(t, "application.source.git.watchPaths", want.Git.WatchPaths, got.Git.WatchPaths)
+		requireLiveEqual(t, "application.source.git.enableSubmodules", want.Git.EnableSubmodules, got.Git.EnableSubmodules)
+		assertApplicationBuildFields(t, "application.source.git.build", want.Git.Build, got.Git.Build)
+	case SourceDocker:
+		requireLiveEqual(t, "application.source.docker.image", want.Docker.Image, got.Docker.Image)
+		requireLiveEqual(t, "application.source.docker.registryUrl", want.Docker.RegistryURL, got.Docker.RegistryURL)
+		requireLiveEqual(t, "application.source.docker.username", want.Docker.Username, got.Docker.Username)
+	case SourceGitLab:
+		requireLiveEqual(t, "application.source.gitlab.integrationId", want.GitLab.IntegrationID, got.GitLab.IntegrationID)
+		requireLiveEqual(t, "application.source.gitlab.projectId", want.GitLab.ProjectID, got.GitLab.ProjectID)
+		requireLiveEqual(t, "application.source.gitlab.owner", want.GitLab.Owner, got.GitLab.Owner)
+		requireLiveEqual(t, "application.source.gitlab.namespace", want.GitLab.Namespace, got.GitLab.Namespace)
+		requireLiveEqual(t, "application.source.gitlab.repository", want.GitLab.Repository, got.GitLab.Repository)
+		requireLiveEqual(t, "application.source.gitlab.branch", want.GitLab.Branch, got.GitLab.Branch)
+		requireLiveEqual(t, "application.source.gitlab.buildPath", want.GitLab.BuildPath, got.GitLab.BuildPath)
+		requireLiveEqual(t, "application.source.gitlab.watchPaths", want.GitLab.WatchPaths, got.GitLab.WatchPaths)
+		requireLiveEqual(t, "application.source.gitlab.enableSubmodules", want.GitLab.EnableSubmodules, got.GitLab.EnableSubmodules)
+		assertApplicationBuildFields(t, "application.source.gitlab.build", want.GitLab.Build, got.GitLab.Build)
+	}
+}
+
+func assertApplicationBuildFields(t *testing.T, field string, want, got ApplicationBuild) {
+	t.Helper()
+	requireLiveEqual(t, field+".type", want.Type, got.Type)
+	requireLiveEqual(t, field+".dockerfile", want.Dockerfile, got.Dockerfile)
+	requireLiveEqual(t, field+".dockerContextPath", want.DockerContextPath, got.DockerContextPath)
+	requireLiveEqual(t, field+".dockerBuildStage", want.DockerBuildStage, got.DockerBuildStage)
+}
+
+func assertLiveApplicationSource(t *testing.T, label string, want, got ApplicationSource) {
+	t.Helper()
+	if want.Type != got.Type {
+		t.Fatalf("live Application %s source type did not match", label)
+	}
+	assertApplicationSourceFields(t, want, got)
 }
 
 func TestApplicationGitSourceSchemaIncludesSSHKeyID(t *testing.T) {
