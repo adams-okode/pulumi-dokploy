@@ -52,4 +52,4 @@ Complete. Production provider behavior was not changed.
 - **P1 RED:** `go test ./provider -run TestPostgresMountCleanupOwnershipRunsMountBeforeFixture -count=1` failed with expected order `fixture, mount` versus actual required `mount, fixture`.
 - **P1 GREEN:** `go test ./provider -run 'TestPostgresMountCleanupOwnershipRunsMountBeforeFixture|TestMountDiffCartesianMatrix|TestMountUpdateBodyAndRedeployMatrix|TestHeavyOperation|TestMountTargetDispatch' -count=1` — PASS.
 - **Full verification:** `go test ./...` — PASS; `git diff --check` — PASS.
-- P1 commit: recorded after this report update.
+- P1 commit: `54e4c55` — `test: harden postgres mount cleanup ownership`.
