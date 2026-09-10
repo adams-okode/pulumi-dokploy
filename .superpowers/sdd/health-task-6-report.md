@@ -22,3 +22,19 @@ Concerns: live Dokploy execution was not performed because acceptance opt-in
 and credentials were not available. The probe intentionally uses an invalid
 project ID and treats responsive 4xx responses as healthy; it records only
 fixed structural diagnostics and never includes response bodies.
+
+## Follow-up Findings Fix
+
+Moved the optional health probe inside the `liveHeavyOperation` mutex. Probe
+failure now clears the reserved operation before returning; the gated caller
+records the sanitized server-health stop and stops the test. Added deterministic
+coverage for serialization, ownership release, and no probe invocation when
+acceptance is disabled.
+
+Additional verification:
+
+- `go test ./provider -run 'Test(ClassifyLiveServerHealthFailure|VerifyLiveServerHealth|HeavyOperationProbe|FailedHeavyOperationProbe|DisabledAcceptanceDoesNotInvokeHealthProbe|ServerHealthFailure|OrdinaryLiveResult)' -count=1` — PASS
+- `env -u DOKPLOY_ACCEPTANCE go test ./provider -run 'TestLiveTier(2|3|4)' -count=1 -v` — PASS; all tiers skipped before probing
+- `go test ./provider -count=1` — PASS
+- `go test ./... -count=1` — PASS
+- `git diff --check` — PASS

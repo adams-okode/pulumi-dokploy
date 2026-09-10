@@ -88,19 +88,33 @@ func beginLiveHeavyOperation(t *testing.T, kind string, probes ...func(context.C
 	if !heavyLiveTierAvailable() {
 		t.Skip("live heavy tier stopped after cleanup failure")
 	}
-	for _, probe := range probes {
-		if err := verifyLiveServerHealth(t.Context(), probe); err != nil {
-			recordServerHealthFailure(kind, err)
-			t.Skip("live acceptance stopped after server health failure")
-		}
+	var probe func(context.Context) error
+	if len(probes) > 0 {
+		probe = probes[0]
 	}
+	lease, err := acquireLiveHeavyOperation(t.Context(), kind, probe)
+	if err != nil {
+		recordServerHealthFailure(kind, err)
+		t.Skip("live acceptance stopped after server health failure")
+	}
+	return lease
+}
+
+// acquireLiveHeavyOperation keeps the serialization mutex held during the
+// health probe. A failed probe clears the reservation before returning, so a
+// later tier can never inherit a stale heavy-operation owner.
+func acquireLiveHeavyOperation(ctx context.Context, kind string, probe func(context.Context) error) (*liveHeavyOperationLease, error) {
 	liveHeavyOperation.Lock()
 	defer liveHeavyOperation.Unlock()
 	if liveHeavyOperation.kind != "" {
-		t.Fatalf("heavy live operation %q is already active; cannot start %q", liveHeavyOperation.kind, kind)
+		return nil, fmt.Errorf("heavy live operation %q is already active", liveHeavyOperation.kind)
 	}
 	liveHeavyOperation.kind = kind
-	return &liveHeavyOperationLease{kind: kind}
+	if err := maybeVerifyLiveServerHealth(ctx, probe); err != nil {
+		liveHeavyOperation.kind = ""
+		return nil, err
+	}
+	return &liveHeavyOperationLease{kind: kind}, nil
 }
 
 func endLiveHeavyOperation(kind string) bool {
@@ -557,6 +571,13 @@ func verifyLiveServerHealth(parent context.Context, probe func(context.Context) 
 		return fmt.Errorf("%w: %s", errLiveServerHealthProbe, healthProbeFailureClass(err))
 	}
 	return nil
+}
+
+func maybeVerifyLiveServerHealth(ctx context.Context, probe func(context.Context) error) error {
+	if probe == nil || !liveAcceptanceEnabled() {
+		return nil
+	}
+	return verifyLiveServerHealth(ctx, probe)
 }
 
 func isLiveDecodeError(err error) bool {

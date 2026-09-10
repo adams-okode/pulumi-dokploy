@@ -588,6 +588,74 @@ func TestVerifyLiveServerHealthReturnsSanitizedFailure(t *testing.T) {
 	require.NotContains(t, err.Error(), "raw-body-sentinel")
 }
 
+func TestHeavyOperationProbeRunsInsideSerializationBoundary(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "1")
+	t.Setenv("DOKPLOY_ENDPOINT", "https://example.invalid")
+	t.Setenv("DOKPLOY_API_KEY", "test-key")
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	started := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	firstDone := make(chan struct{})
+	go func() {
+		lease, err := acquireLiveHeavyOperation(t.Context(), "first", func(context.Context) error {
+			close(started)
+			<-releaseProbe
+			return nil
+		})
+		require.NoError(t, err)
+		require.True(t, lease.release(t))
+		close(firstDone)
+	}()
+	<-started
+	secondStarted := make(chan struct{})
+	secondDone := make(chan struct{})
+	go func() {
+		lease, err := acquireLiveHeavyOperation(t.Context(), "second", func(context.Context) error {
+			close(secondStarted)
+			return nil
+		})
+		require.NoError(t, err)
+		require.True(t, lease.release(t))
+		close(secondDone)
+	}()
+	select {
+	case <-secondStarted:
+		t.Fatal("second health probe overlapped the first probe")
+	case <-time.After(10 * time.Millisecond):
+	}
+	close(releaseProbe)
+	<-firstDone
+	<-secondDone
+}
+
+func TestFailedHeavyOperationProbeReleasesOwnership(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "1")
+	t.Setenv("DOKPLOY_ENDPOINT", "https://example.invalid")
+	t.Setenv("DOKPLOY_API_KEY", "test-key")
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	_, err := acquireLiveHeavyOperation(t.Context(), "failed", func(context.Context) error {
+		return errLiveServerHealthProbe
+	})
+	require.Error(t, err)
+	lease, err := acquireLiveHeavyOperation(t.Context(), "next", nil)
+	require.NoError(t, err)
+	require.True(t, lease.release(t))
+}
+
+func TestDisabledAcceptanceDoesNotInvokeHealthProbe(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "")
+	t.Setenv("DOKPLOY_ENDPOINT", "")
+	t.Setenv("DOKPLOY_API_KEY", "")
+	called := false
+	require.NoError(t, maybeVerifyLiveServerHealth(t.Context(), func(context.Context) error {
+		called = true
+		return errLiveServerHealthProbe
+	}))
+	require.False(t, called)
+}
+
 func TestCleanupFailureCreatesNonSecretStopMarker(t *testing.T) {
 	resetLiveHarnessState()
 	t.Cleanup(resetLiveHarnessState)
