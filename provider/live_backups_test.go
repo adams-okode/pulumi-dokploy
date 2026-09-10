@@ -177,7 +177,7 @@ func cleanupLiveResource(t *testing.T, kind, id string, remove func(context.Cont
 
 func liveBackupForPostgres(t *testing.T, ctx context.Context, api *client.Client, environmentID, destinationID string) {
 	r := Postgres{client: fixedClient(api)}
-	lease := beginLiveHeavyOperation(t, "backup-postgres")
+	lease := beginLiveHeavyOperation(t, "backup-postgres", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[PostgresArgs]{Inputs: PostgresArgs{Name: liveRunName("backup-postgres"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "postgres:18"}})
 	target := liveBackupTarget{id: created.ID, lease: lease, resource: "postgres", remove: func(c context.Context) error {
 		_, e := r.Delete(c, infer.DeleteRequest[PostgresState]{ID: created.ID})
@@ -186,7 +186,7 @@ func liveBackupForPostgres(t *testing.T, ctx context.Context, api *client.Client
 		v, e := r.Read(c, infer.ReadRequest[PostgresArgs, PostgresState]{ID: created.ID})
 		return v.ID, e
 	}}
-	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) })
+	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
@@ -196,7 +196,7 @@ func liveBackupForPostgres(t *testing.T, ctx context.Context, api *client.Client
 func liveBackupForMySQL(t *testing.T, ctx context.Context, api *client.Client, environmentID, destinationID string) {
 	r := MySQL{client: fixedClient(api)}
 	root := "live-test-root-password"
-	lease := beginLiveHeavyOperation(t, "backup-mysql")
+	lease := beginLiveHeavyOperation(t, "backup-mysql", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[MySQLArgs]{Inputs: MySQLArgs{Name: liveRunName("backup-mysql"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DatabaseRootPassword: &root, DockerImage: "mysql:8"}})
 	target := liveBackupTarget{id: created.ID, lease: lease, resource: "mysql", remove: func(c context.Context) error {
 		_, e := r.Delete(c, infer.DeleteRequest[MySQLState]{ID: created.ID})
@@ -205,7 +205,7 @@ func liveBackupForMySQL(t *testing.T, ctx context.Context, api *client.Client, e
 		v, e := r.Read(c, infer.ReadRequest[MySQLArgs, MySQLState]{ID: created.ID})
 		return v.ID, e
 	}}
-	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) })
+	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
@@ -214,7 +214,7 @@ func liveBackupForMySQL(t *testing.T, ctx context.Context, api *client.Client, e
 
 func liveBackupForMariaDB(t *testing.T, ctx context.Context, api *client.Client, environmentID, destinationID string) {
 	r := MariaDB{client: fixedClient(api)}
-	lease := beginLiveHeavyOperation(t, "backup-mariadb")
+	lease := beginLiveHeavyOperation(t, "backup-mariadb", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[MariaDBArgs]{Inputs: MariaDBArgs{Name: liveRunName("backup-mariadb"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mariadb:11"}})
 	target := liveBackupTarget{id: created.ID, lease: lease, resource: "mariadb", remove: func(c context.Context) error {
 		_, e := r.Delete(c, infer.DeleteRequest[MariaDBState]{ID: created.ID})
@@ -223,7 +223,7 @@ func liveBackupForMariaDB(t *testing.T, ctx context.Context, api *client.Client,
 		v, e := r.Read(c, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: created.ID})
 		return v.ID, e
 	}}
-	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) })
+	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
@@ -233,7 +233,7 @@ func liveBackupForMariaDB(t *testing.T, ctx context.Context, api *client.Client,
 func liveBackupForMongoDB(t *testing.T, ctx context.Context, api *client.Client, environmentID, destinationID string) {
 	r := MongoDB{client: fixedClient(api)}
 	replicas := false
-	lease := beginLiveHeavyOperation(t, "backup-mongodb")
+	lease := beginLiveHeavyOperation(t, "backup-mongodb", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[MongoDBArgs]{Inputs: MongoDBArgs{Name: liveRunName("backup-mongodb"), EnvironmentID: environmentID, DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mongo:8", ReplicaSets: &replicas}})
 	target := liveBackupTarget{id: created.ID, lease: lease, resource: "mongodb", remove: func(c context.Context) error {
 		_, e := r.Delete(c, infer.DeleteRequest[MongoDBState]{ID: created.ID})
@@ -242,7 +242,7 @@ func liveBackupForMongoDB(t *testing.T, ctx context.Context, api *client.Client,
 		v, e := r.Read(c, infer.ReadRequest[MongoDBArgs, MongoDBState]{ID: created.ID})
 		return v.ID, e
 	}}
-	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) })
+	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)

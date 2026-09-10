@@ -81,7 +81,7 @@ func finishDatabaseCleanup(t *testing.T, lease *liveHeavyOperationLease, kind, i
 func livePostgresLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := Postgres{client: fixedClient(api)}
 	inputs := PostgresArgs{Name: liveRunName("postgres"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "postgres:18", Environment: stringPtr("LIVE=1")}
-	lease := beginLiveHeavyOperation(t, "postgres")
+	lease := beginLiveHeavyOperation(t, "postgres", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
 		if id == "" {
@@ -98,7 +98,7 @@ func livePostgresLifecycle(t *testing.T, ctx context.Context, api *client.Client
 			v, e := r.Read(c, infer.ReadRequest[PostgresArgs, PostgresState]{ID: id})
 			return v.ID, e
 		})
-	})
+	}, liveServerHealthProbe(api))
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
 	t.Cleanup(func() {
@@ -163,7 +163,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	r := MySQL{client: fixedClient(api)}
 	root := "live-test-root-password"
 	inputs := MySQLArgs{Name: liveRunName("mysql"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DatabaseRootPassword: &root, DockerImage: "mysql:8", Environment: stringPtr("LIVE=1")}
-	lease := beginLiveHeavyOperation(t, "mysql")
+	lease := beginLiveHeavyOperation(t, "mysql", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
 		if id == "" {
@@ -180,7 +180,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 			v, e := r.Read(c, infer.ReadRequest[MySQLArgs, MySQLState]{ID: id})
 			return v.ID, e
 		})
-	})
+	}, liveServerHealthProbe(api))
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
 	t.Cleanup(func() {
@@ -237,7 +237,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := MariaDB{client: fixedClient(api)}
 	inputs := MariaDBArgs{Name: liveRunName("mariadb"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mariadb:11", Environment: stringPtr("LIVE=1")}
-	lease := beginLiveHeavyOperation(t, "mariadb")
+	lease := beginLiveHeavyOperation(t, "mariadb", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
 		if id == "" {
@@ -254,7 +254,7 @@ func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 			v, e := r.Read(c, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: id})
 			return v.ID, e
 		})
-	})
+	}, liveServerHealthProbe(api))
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
 	t.Cleanup(func() {
@@ -312,7 +312,7 @@ func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string, replicaSets bool) {
 	r := MongoDB{client: fixedClient(api)}
 	inputs := MongoDBArgs{Name: liveRunName("mongodb"), EnvironmentID: environmentID, DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mongo:8", Environment: stringPtr("LIVE=1"), ReplicaSets: &replicaSets}
-	lease := beginLiveHeavyOperation(t, "mongodb")
+	lease := beginLiveHeavyOperation(t, "mongodb", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
 		if id == "" {
@@ -329,7 +329,7 @@ func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 			v, e := r.Read(c, infer.ReadRequest[MongoDBArgs, MongoDBState]{ID: id})
 			return v.ID, e
 		})
-	})
+	}, liveServerHealthProbe(api))
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
 	t.Cleanup(func() {
@@ -389,7 +389,7 @@ func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 func liveRedisLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := Redis{client: fixedClient(api)}
 	inputs := RedisArgs{Name: liveRunName("redis"), EnvironmentID: environmentID, DatabasePassword: "live-test-password", DockerImage: "redis:8", Environment: stringPtr("LIVE=1")}
-	lease := beginLiveHeavyOperation(t, "redis")
+	lease := beginLiveHeavyOperation(t, "redis", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
 		if id == "" {
@@ -406,7 +406,7 @@ func liveRedisLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 			v, e := r.Read(c, infer.ReadRequest[RedisArgs, RedisState]{ID: id})
 			return v.ID, e
 		})
-	})
+	}, liveServerHealthProbe(api))
 	requireNoError(t, err)
 	require.Equal(t, statusDone, created.Output.Status)
 	t.Cleanup(func() {

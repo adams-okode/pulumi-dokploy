@@ -547,6 +547,47 @@ func TestServerHealthFailureStopsHeavyTier(t *testing.T) {
 	require.True(t, heavyLiveTierStopped())
 }
 
+func TestClassifyLiveServerHealthFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"502", &client.APIError{StatusCode: 502, Code: "BAD_GATEWAY"}, true},
+		{"503 safe code", &client.APIError{StatusCode: 503, Code: "SERVICE_UNAVAILABLE"}, true},
+		{"504", &client.APIError{StatusCode: 504, Code: "TIMEOUT"}, true},
+		{"capacity code", &client.APIError{StatusCode: 400, Code: "CAPACITY_EXHAUSTED"}, true},
+		{"validation", &client.APIError{StatusCode: 400, Code: "VALIDATION_ERROR"}, false},
+		{"not found", &client.APIError{StatusCode: 404, Code: "NOT_FOUND"}, false},
+		{"decode", errors.New("invalid character in response"), false},
+		{"ordinary timeout", context.DeadlineExceeded, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, classifyLiveServerHealthFailure(tt.err))
+		})
+	}
+}
+
+func TestVerifyLiveServerHealthUsesBoundedContext(t *testing.T) {
+	var got context.Context
+	err := verifyLiveServerHealth(t.Context(), func(ctx context.Context) error {
+		got = ctx
+		return nil
+	})
+	require.NoError(t, err)
+	_, ok := got.Deadline()
+	require.True(t, ok)
+}
+
+func TestVerifyLiveServerHealthReturnsSanitizedFailure(t *testing.T) {
+	err := verifyLiveServerHealth(t.Context(), func(context.Context) error {
+		return &client.APIError{StatusCode: 503, Code: "SERVICE_UNAVAILABLE", Message: "raw-body-sentinel"}
+	})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "raw-body-sentinel")
+}
+
 func TestCleanupFailureCreatesNonSecretStopMarker(t *testing.T) {
 	resetLiveHarnessState()
 	t.Cleanup(resetLiveHarnessState)

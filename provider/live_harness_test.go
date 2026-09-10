@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client"
+	"github.com/dimeskigj/pulumi-dokploy/internal/client/generated"
 	"github.com/google/uuid"
 	p "github.com/pulumi/pulumi-go-provider"
 )
@@ -82,10 +83,16 @@ func deleteAndVerifyLiveOwned(ctx context.Context, remove func() error, read fun
 	return err
 }
 
-func beginLiveHeavyOperation(t *testing.T, kind string) *liveHeavyOperationLease {
+func beginLiveHeavyOperation(t *testing.T, kind string, probes ...func(context.Context) error) *liveHeavyOperationLease {
 	t.Helper()
 	if !heavyLiveTierAvailable() {
 		t.Skip("live heavy tier stopped after cleanup failure")
+	}
+	for _, probe := range probes {
+		if err := verifyLiveServerHealth(t.Context(), probe); err != nil {
+			recordServerHealthFailure(kind, err)
+			t.Skip("live acceptance stopped after server health failure")
+		}
 	}
 	liveHeavyOperation.Lock()
 	defer liveHeavyOperation.Unlock()
@@ -129,9 +136,19 @@ func (lease *liveHeavyOperationLease) releaseIfNeeded(t *testing.T) {
 // handleLiveHeavyCreateError closes the lease on every create error. A
 // provider may return both an ID and an error; in that case cleanup happens
 // synchronously before the test reports the fatal create failure.
-func handleLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func()) {
+func handleLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func(), probes ...func(context.Context) error) {
 	t.Helper()
 	cleanupLiveHeavyCreateFailure(t, lease, id, createErr, cleanup)
+	if createErr != nil && classifyLiveServerHealthFailure(createErr) {
+		recordServerHealthFailure(lease.kind, errLiveServerHealthProbe)
+	} else if createErr != nil && errors.Is(createErr, context.DeadlineExceeded) {
+		for _, probe := range probes {
+			if probeErr := verifyLiveServerHealth(t.Context(), probe); probeErr != nil {
+				recordServerHealthFailure(lease.kind, probeErr)
+				break
+			}
+		}
+	}
 	if createErr != nil {
 		requireNoError(t, createErr)
 	}
@@ -498,6 +515,82 @@ func recordCleanupResult(kind string, diagnostic interface{}) string {
 func recordServerHealthFailure(kind string, diagnostic interface{}) string {
 	liveHeavyStop.Store(true)
 	return recordHeavyFailure(kind, diagnostic)
+}
+
+var errLiveServerHealthProbe = errors.New("live server health probe failed")
+
+func classifyLiveServerHealthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == 502 || apiErr.StatusCode == 503 || apiErr.StatusCode == 504 {
+		return true
+	}
+	switch strings.ToUpper(strings.TrimSpace(apiErr.Code)) {
+	case "SERVICE_UNAVAILABLE", "SERVER_UNHEALTHY", "CAPACITY_EXHAUSTED":
+		return true
+	default:
+		return false
+	}
+}
+
+// verifyLiveServerHealth deliberately returns a fixed diagnostic. Probe
+// implementations must not expose response bodies, endpoint values, or IDs.
+func verifyLiveServerHealth(parent context.Context, probe func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	if err := probe(ctx); err != nil {
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) {
+			// A request reaching the API and being rejected for its deliberately
+			// invalid probe input proves that the server is responsive.
+			if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && !classifyLiveServerHealthFailure(err) {
+				return nil
+			}
+		} else if isLiveDecodeError(err) {
+			return nil
+		}
+		return fmt.Errorf("%w: %s", errLiveServerHealthProbe, healthProbeFailureClass(err))
+	}
+	return nil
+}
+
+func isLiveDecodeError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	var invalidErr *json.InvalidUnmarshalError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr) || errors.As(err, &invalidErr)
+}
+
+func healthProbeFailureClass(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if classifyLiveServerHealthFailure(err) {
+		return "unavailable"
+	}
+	return "transport"
+}
+
+func liveServerHealthProbe(api *client.Client) func(context.Context) error {
+	return func(ctx context.Context) error {
+		response, err := api.ProjectOneWithResponse(ctx, &generated.ProjectOneParams{ProjectId: ""})
+		if err != nil {
+			return err
+		}
+		if response == nil || response.HTTPResponse == nil {
+			return errLiveServerHealthProbe
+		}
+		status := response.HTTPResponse.StatusCode
+		if status >= 200 && status < 500 {
+			return nil
+		}
+		return &client.APIError{StatusCode: status, Code: "SERVER_UNHEALTHY"}
+	}
 }
 
 // createLiveStopMarker publishes only a fixed, non-secret sentinel. O_EXCL

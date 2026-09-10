@@ -1000,7 +1000,7 @@ func (fixture *liveDispatchFixture) cleanup(t *testing.T) {
 
 func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Client, environmentID, kind string) *liveDispatchFixture {
 	t.Helper()
-	lease := beginLiveHeavyOperation(t, "mount-dispatch-"+kind)
+	lease := beginLiveHeavyOperation(t, "mount-dispatch-"+kind, liveServerHealthProbe(api))
 	switch kind {
 	case "postgres":
 		t.Cleanup(registerLiveSecrets("live-test-password"))
@@ -1013,7 +1013,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			v, e := (Postgres{client: fixedClient(api)}).Read(c, infer.ReadRequest[PostgresArgs, PostgresState]{ID: created.ID})
 			return v.ID, e
 		}}
-		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) })
+		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) }, liveServerHealthProbe(api))
 		return fixture
 	case "mysql":
 		root := "live-test-root-password"
@@ -1027,7 +1027,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			v, e := (MySQL{client: fixedClient(api)}).Read(c, infer.ReadRequest[MySQLArgs, MySQLState]{ID: created.ID})
 			return v.ID, e
 		}}
-		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) })
+		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) }, liveServerHealthProbe(api))
 		return fixture
 	case "mariadb":
 		t.Cleanup(registerLiveSecrets("live-test-password"))
@@ -1040,7 +1040,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			v, e := (MariaDB{client: fixedClient(api)}).Read(c, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: created.ID})
 			return v.ID, e
 		}}
-		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) })
+		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) }, liveServerHealthProbe(api))
 		return fixture
 	case "redis":
 		t.Cleanup(registerLiveSecrets("live-test-password"))
@@ -1053,7 +1053,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			v, e := (Redis{client: fixedClient(api)}).Read(c, infer.ReadRequest[RedisArgs, RedisState]{ID: created.ID})
 			return v.ID, e
 		}}
-		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) })
+		handleLiveHeavyCreateError(t, lease, created.ID, err, func() { fixture.cleanup(t) }, liveServerHealthProbe(api))
 		return fixture
 	default:
 		t.Fatalf("unsupported dispatch database %q", kind)
