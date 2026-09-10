@@ -44,4 +44,6 @@
 
 ## Commit
 
-Recorded after verification in the task commit.
+- `ced216a4a807ceb05d1ea48499dc4751ccf6ec07` — implementation and test
+  coverage.
+- This report is committed in the follow-up documentation commit.
