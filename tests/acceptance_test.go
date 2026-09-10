@@ -22,6 +22,26 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	readme := string(readmeBytes)
+	sectionOrder := []string{
+		"## Purpose",
+		"## Test layers",
+		"## Safety rules",
+		"## Prerequisites",
+		"## Local setup",
+		"## Test commands",
+		"## Optional coverage",
+		"## Cleanup and stop behavior",
+		"## Result classification",
+		"## Reports",
+	}
+	previous := -1
+	for _, heading := range sectionOrder {
+		position := strings.Index(readme, heading)
+		if position <= previous {
+			t.Errorf("README section %q is out of order or missing", heading)
+		}
+		previous = position
+	}
 	for _, required := range []string{
 		"Direct-provider lifecycle tests",
 		"Pulumi Automation API smoke test",
@@ -39,6 +59,14 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 		"DOKPLOY_GITLAB_INTEGRATION_ID",
 		"DOKPLOY_ACCEPTANCE_ALLOW_REPLICAS",
 		"DOKPLOY_CUSTOM_CERT_RESOLVER",
+		"DOKPLOY_REGISTRY_USERNAME",
+		"DOKPLOY_REGISTRY_PASSWORD",
+		"DOKPLOY_REGISTRY_IMAGE_PREFIX",
+		"DOKPLOY_GITLAB_PROJECT_ID",
+		"DOKPLOY_GITLAB_OWNER",
+		"DOKPLOY_GITLAB_NAMESPACE",
+		"DOKPLOY_GITLAB_REPOSITORY",
+		"DOKPLOY_GITLAB_BRANCH",
 		"docs/bugs/README.md",
 		"docs/bugs/2026-09-05-live-acceptance-run.md",
 	} {
@@ -46,10 +74,68 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 			t.Errorf("live acceptance README is missing %q", required)
 		}
 	}
+	if !strings.Contains(readme, "planned and not active") {
+		t.Error("README does not identify custom certificate resolver support as planned and inactive")
+	}
+
+	commandsStart := strings.Index(readme, "## Test commands")
+	optionalCoverageStart := strings.Index(readme, "## Optional coverage")
+	if commandsStart < 0 || optionalCoverageStart <= commandsStart {
+		t.Fatal("README test command section boundaries are missing or out of order")
+	}
+	commandsSection := readme[commandsStart:optionalCoverageStart]
+	commandBlockStart := strings.Index(commandsSection, "```bash")
+	commandBlockEnd := -1
+	if commandBlockStart >= 0 {
+		commandBlockEnd = strings.Index(commandsSection[commandBlockStart+len("```bash"):], "```")
+	}
+	if commandBlockStart < 0 || commandBlockEnd < 0 {
+		t.Fatal("README test commands section has no bash command block")
+	}
+	commandBlock := commandsSection[commandBlockStart+len("```bash") : commandBlockStart+len("```bash")+commandBlockEnd]
+	expectedCommands := []string{
+		"mise exec -- go test ./provider -run TestLiveTier1ControlPlane -parallel=1 -count=1 -v",
+		"mise exec -- go test ./provider -run TestLiveTier2Workloads -parallel=1 -count=1 -v",
+		"mise exec -- go test ./provider -run TestLiveTier3Databases -parallel=1 -count=1 -v",
+		"mise exec -- go test ./provider -run TestLiveTier4Backups -parallel=1 -count=1 -v",
+		"mise exec -- go test ./tests -run TestAccLifecycleSmoke -parallel=1 -count=1 -v",
+	}
+	for _, command := range expectedCommands {
+		if strings.Count(commandBlock, command) != 1 {
+			t.Errorf("README must contain exactly one serial command %q", command)
+		}
+	}
+	if got := strings.Count(commandBlock, "mise exec -- go test "); got != len(expectedCommands) {
+		t.Errorf("README has %d test commands, want exactly %d", got, len(expectedCommands))
+	}
+
+	for _, required := range []string{
+		"fallback cleanup",
+		"explicit resource absence",
+		"Cleanup contexts are independent",
+		"creates `DOKPLOY_ACCEPTANCE_STOP_FILE` when cleanup fails",
+		"Do not run a later heavy tier when the marker exists",
+		"**Pass:**",
+		"**Skip:**",
+		"**Provider defect:**",
+		"**Dokploy server defect:**",
+		"**Test environment limitation:**",
+		"ordinary resource failure does not stop an independent tier",
+		"Never run these tests against a production server",
+		"Do not print credentials",
+		"Redact credentials",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Errorf("README is missing safety or result contract %q", required)
+		}
+	}
 	for _, prohibited := range []string{"Go test code loads .env", "tests read .env", "parse .env"} {
 		if strings.Contains(readme, prohibited) {
 			t.Errorf("live acceptance README contains prohibited instruction %q", prohibited)
 		}
+	}
+	if !strings.Contains(readme, "Go test code must not read\n`.env` or parse `.env`") {
+		t.Error("README does not state the safe shell and test-code .env boundary")
 	}
 	contributingBytes, err := os.ReadFile("../CONTRIBUTING.md")
 	if err != nil {

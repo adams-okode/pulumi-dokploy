@@ -53,11 +53,12 @@ have permission to create and delete only the reserved test resources.
 1. Run `mise install` to install the pinned tools.
 2. Run `make provider` to build the local provider binary.
 3. Add the provider directory with `export PATH="$PWD/bin:$PATH"`.
-4. Export `DOKPLOY_ENDPOINT` and `DOKPLOY_API_KEY` from a protected shell or
-   credential store.
-5. Export `DOKPLOY_ACCEPTANCE=1` to opt in to live tests.
-6. Choose a writable, absent path and export it as
-   `DOKPLOY_ACCEPTANCE_STOP_FILE`; remove that path before the first tier.
+4. Export `DOKPLOY_ENDPOINT` from a protected shell or credential store.
+5. Export `DOKPLOY_API_KEY` from a protected shell or credential store.
+6. Export `DOKPLOY_ACCEPTANCE=1` to opt in to live tests.
+7. Choose a writable, absent path for `DOKPLOY_ACCEPTANCE_STOP_FILE`.
+8. Export `DOKPLOY_ACCEPTANCE_STOP_FILE` with that path.
+9. Remove the stop-marker path before the first tier.
 
 The shell may source a protected credential file. Go test code must not read
 `.env` or parse `.env`; the process receives credentials through its
@@ -92,11 +93,12 @@ GitLab credentials. The test skips each integration when its prerequisite is
 absent.
 
 MongoDB replica coverage requires `DOKPLOY_ACCEPTANCE_ALLOW_REPLICAS=1`; the
-database tier skips replica sets without that opt-in. A server configured with
-custom certificate handling may use `DOKPLOY_CUSTOM_CERT_RESOLVER`; keep that
-server-scope setting outside test output. Other optional server-scope variables
-must remain protected and must not be copied into a report. An absent optional
-prerequisite produces a skip, not a provider failure.
+database tier skips replica sets without that opt-in. The
+`DOKPLOY_CUSTOM_CERT_RESOLVER` variable is planned and not active. Do not set
+or rely on it until Task 5 adds test and workflow support. Other optional
+server-scope variables must remain protected and must not be copied into a
+report. An absent optional prerequisite produces a skip, not a provider
+failure.
 
 ## Cleanup and stop behavior
 
