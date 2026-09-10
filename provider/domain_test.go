@@ -144,6 +144,71 @@ func TestDomainCreateBodyMatrix(t *testing.T) {
 	}
 }
 
+func TestDomainCustomCertificateRoundTrip(t *testing.T) {
+	resolver := "resolver-sentinel"
+	inputs := DomainArgs{ApplicationID: stringPtr("a1"), Host: "example.invalid", HTTPS: true, CertificateType: CertificateCustom, CustomCertResolver: &resolver, StripPath: true, Enabled: true}
+	s := newScriptedServer(t,
+		expectPOST("/api/domain.create", `{"applicationId":"a1","certificateType":"custom","customCertResolver":"resolver-sentinel","domainType":"application","host":"example.invalid","https":true,"stripPath":true}`, `{"domainId":"d1"}`),
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"example.invalid","https":true,"certificateType":"custom","customCertResolver":"resolver-sentinel","stripPath":true,"enabled":true}`),
+		scriptedRequest{Method: http.MethodPost, Path: "/api/domain.update", Body: json.RawMessage(`{"certificateType":"custom","customCertResolver":"resolver-sentinel","domainId":"d1","domainType":"application","enabled":true,"host":"updated.example.invalid","https":true,"internalPath":null,"path":null,"port":null,"serviceName":null,"stripPath":true}`), Status: http.StatusOK, Response: []byte(`{}`)},
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"updated.example.invalid","https":true,"certificateType":"custom","customCertResolver":"resolver-sentinel","stripPath":true,"enabled":true}`),
+	)
+	r := Domain{client: fixedClient(s.API())}
+	created, err := r.Create(t.Context(), infer.CreateRequest[DomainArgs]{Inputs: inputs})
+	require.NoError(t, err)
+	read, err := r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: created.Output})
+	require.NoError(t, err)
+	updated := read.Inputs
+	updated.Host = "updated.example.invalid"
+	changed, err := r.Update(t.Context(), infer.UpdateRequest[DomainArgs, DomainState]{ID: created.ID, Inputs: updated, State: read.State})
+	require.NoError(t, err)
+	read, err = r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: changed.Output})
+	require.NoError(t, err)
+	requireLiveEqual(t, "domain.applicationId", inputs.ApplicationID, read.Inputs.ApplicationID)
+	requireLiveEqual(t, "domain.host", updated.Host, read.Inputs.Host)
+	requireLiveEqual(t, "domain.https", inputs.HTTPS, read.Inputs.HTTPS)
+	requireLiveEqual(t, "domain.certificateType", inputs.CertificateType, read.Inputs.CertificateType)
+	requireLiveEqual(t, "domain.customCertResolver", inputs.CustomCertResolver, read.Inputs.CustomCertResolver)
+	requireLiveEqual(t, "domain.stripPath", inputs.StripPath, read.Inputs.StripPath)
+}
+
+func TestDomainSafeRoutingFieldsRoundTrip(t *testing.T) {
+	s := newScriptedServer(t,
+		expectPOST("/api/domain.create", `{"applicationId":"a1","certificateType":"none","domainType":"application","host":"example.invalid","https":false,"stripPath":false}`, `{"domainId":"d1"}`),
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"example.invalid","https":false,"certificateType":"none","stripPath":false,"enabled":true}`),
+		scriptedRequest{Method: http.MethodPost, Path: "/api/domain.update", Body: json.RawMessage(`{"certificateType":"none","customCertResolver":null,"domainId":"d1","domainType":"application","enabled":true,"host":"example.invalid","https":true,"internalPath":null,"path":null,"port":null,"serviceName":null,"stripPath":false}`), Status: http.StatusOK, Response: []byte(`{}`)},
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"example.invalid","https":true,"certificateType":"none","stripPath":false,"enabled":true}`),
+		scriptedRequest{Method: http.MethodPost, Path: "/api/domain.update", Body: json.RawMessage(`{"certificateType":"none","customCertResolver":null,"domainId":"d1","domainType":"application","enabled":true,"host":"example.invalid","https":true,"internalPath":null,"path":null,"port":null,"serviceName":null,"stripPath":true}`), Status: http.StatusOK, Response: []byte(`{}`)},
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"example.invalid","https":true,"certificateType":"none","stripPath":true,"enabled":true}`),
+		expectGET("/api/domain.one", map[string][]string{"domainId": {"d1"}}, http.StatusOK, `{"domainId":"d1","applicationId":"a1","host":"example.invalid","https":true,"certificateType":"none","stripPath":true,"enabled":true}`),
+	)
+	r := Domain{client: fixedClient(s.API())}
+	inputs := DomainArgs{ApplicationID: stringPtr("a1"), Host: "example.invalid", CertificateType: CertificateNone, Enabled: true}
+	created, err := r.Create(t.Context(), infer.CreateRequest[DomainArgs]{Inputs: inputs})
+	require.NoError(t, err)
+	read, err := r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: created.Output})
+	require.NoError(t, err)
+	inputs = read.Inputs
+	inputs.HTTPS = true
+	updated, err := r.Update(t.Context(), infer.UpdateRequest[DomainArgs, DomainState]{ID: created.ID, Inputs: inputs, State: read.State})
+	require.NoError(t, err)
+	postHTTPS, err := r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: updated.Output})
+	require.NoError(t, err)
+	requireLiveEqual(t, "domain.https", true, postHTTPS.Inputs.HTTPS)
+	inputs = postHTTPS.Inputs
+	inputs.StripPath = true
+	updated, err = r.Update(t.Context(), infer.UpdateRequest[DomainArgs, DomainState]{ID: created.ID, Inputs: inputs, State: postHTTPS.State})
+	require.NoError(t, err)
+	postStrip, err := r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: updated.Output})
+	require.NoError(t, err)
+	requireLiveEqual(t, "domain.stripPath", true, postStrip.Inputs.StripPath)
+	imported, err := r.Read(t.Context(), infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
+	require.NoError(t, err)
+	requireLiveEqual(t, "domain.https import", true, imported.Inputs.HTTPS)
+	requireLiveEqual(t, "domain.stripPath import", true, imported.Inputs.StripPath)
+	requireLiveEqual(t, "domain.certificateType import", CertificateNone, imported.Inputs.CertificateType)
+}
+
 func jsonObject(t *testing.T, value any) map[string]any {
 	t.Helper()
 	encoded, err := json.Marshal(value)

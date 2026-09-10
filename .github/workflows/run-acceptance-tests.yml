@@ -116,6 +116,7 @@ jobs:
           DOKPLOY_REGISTRY_USERNAME: ${{ secrets.DOKPLOY_REGISTRY_USERNAME }}
           DOKPLOY_REGISTRY_PASSWORD: ${{ secrets.DOKPLOY_REGISTRY_PASSWORD }}
           DOKPLOY_REGISTRY_IMAGE_PREFIX: ${{ secrets.DOKPLOY_REGISTRY_IMAGE_PREFIX }}
+          DOKPLOY_CUSTOM_CERT_RESOLVER: ${{ secrets.DOKPLOY_CUSTOM_CERT_RESOLVER }}
       - id: tier2_gate
         name: Check Tier 2 stop marker
         if: ${{ always() }}

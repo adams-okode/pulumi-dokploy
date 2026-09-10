@@ -106,8 +106,8 @@ absent.
 
 MongoDB replica coverage requires `DOKPLOY_ACCEPTANCE_ALLOW_REPLICAS=1`; the
 database tier skips replica sets without that opt-in. The
-`DOKPLOY_CUSTOM_CERT_RESOLVER` variable is planned and not active. Do not set
-or rely on it until Task 5 adds test and workflow support. Other optional
+`DOKPLOY_CUSTOM_CERT_RESOLVER` variable enables the active custom certificate
+resolver coverage in Tier 2. When absent, that case skips. Other optional
 server-scope variables must remain protected and must not be copied into a
 report. An absent optional prerequisite produces a skip, not a provider
 failure.

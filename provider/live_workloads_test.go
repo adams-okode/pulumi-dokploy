@@ -234,6 +234,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 			updated := read.Inputs
 			updated.Host = liveRunName("updated-domain") + ".example.invalid"
 			updated.Path, updated.InternalPath, updated.Port = stringPtr("/public"), stringPtr("/internal"), intPtr(8080)
+			updated.HTTPS = true
 			updated.Enabled = false
 			updatedState, err := r.Update(ctx, infer.UpdateRequest[DomainArgs, DomainState]{ID: created.ID, Inputs: updated, State: read.State})
 			requireWorkloadLifecycleNoError(t, "domain", err)
@@ -243,7 +244,16 @@ func TestLiveTier2Workloads(t *testing.T) {
 			requireLiveEqual(t, "domain.path", updated.Path, postUpdate.Inputs.Path)
 			requireLiveEqual(t, "domain.internalPath", updated.InternalPath, postUpdate.Inputs.InternalPath)
 			requireLiveEqual(t, "domain.port", updated.Port, postUpdate.Inputs.Port)
+			requireLiveEqual(t, "domain.https", updated.HTTPS, postUpdate.Inputs.HTTPS)
 			requireLiveEqual(t, "domain.enabled", updated.Enabled, postUpdate.Inputs.Enabled)
+			updated = postUpdate.Inputs
+			updated.StripPath = true
+			stripPathState, err := r.Update(ctx, infer.UpdateRequest[DomainArgs, DomainState]{ID: created.ID, Inputs: updated, State: postUpdate.State})
+			requireWorkloadLifecycleNoError(t, "domain", err)
+			postStripPath, err := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: stripPathState.Output})
+			requireWorkloadLifecycleNoError(t, "domain", err)
+			requireLiveEqual(t, "domain.stripPath", updated.StripPath, postStripPath.Inputs.StripPath)
+			postUpdate = postStripPath
 			// Import-style reads must reconstruct state from the ID alone.
 			imported, err := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
 			requireWorkloadLifecycleNoError(t, "domain", err)
@@ -252,6 +262,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 			requireLiveEqual(t, "domain.internalPath", updated.InternalPath, imported.Inputs.InternalPath)
 			requireLiveEqual(t, "domain.port", updated.Port, imported.Inputs.Port)
 			requireLiveEqual(t, "domain.enabled", updated.Enabled, imported.Inputs.Enabled)
+			requireLiveEqual(t, "domain.https", updated.HTTPS, imported.Inputs.HTTPS)
+			requireLiveEqual(t, "domain.stripPath", updated.StripPath, imported.Inputs.StripPath)
 			requireLiveEqual(t, "domain.certificateType", updated.CertificateType, imported.Inputs.CertificateType)
 			if target.compose {
 				requireLiveEqual(t, "domain.composeId", target.id, value(imported.Inputs.ComposeID))
@@ -270,6 +282,60 @@ func TestLiveTier2Workloads(t *testing.T) {
 			gone, err := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
 			requireWorkloadLifecycleNoError(t, "domain", err)
 			requireLiveEqual(t, "domain.id after delete", "", gone.ID)
+		})
+		t.Run("Domain/custom-certificate/"+target.name, func(t *testing.T) {
+			resolver := os.Getenv("DOKPLOY_CUSTOM_CERT_RESOLVER")
+			if resolver == "" {
+				t.Skip("DOKPLOY_CUSTOM_CERT_RESOLVER is not configured")
+			}
+			register := registerLiveSecrets(resolver)
+			t.Cleanup(register)
+			r := Domain{client: fixedClient(api)}
+			targetPresent, targetReady, readErr := readLiveWorkloadTarget(ctx, api, target.id, target.compose)
+			requireLiveLifecycleNoError(t, "custom Domain", "read ready target", readErr)
+			if !targetPresent || !targetReady {
+				t.Skip("workload target is not ready for custom certificate coverage")
+			}
+			args := DomainArgs{Host: liveRunName("custom-domain") + ".example.invalid", HTTPS: true, CertificateType: CertificateCustom, CustomCertResolver: &resolver, StripPath: true, Enabled: true}
+			if target.compose {
+				args.ComposeID, args.ServiceName = &target.id, stringPtr("web")
+			} else {
+				args.ApplicationID = &target.id
+			}
+			created, err := r.Create(ctx, infer.CreateRequest[DomainArgs]{Inputs: args})
+			cleanupAfterCreateError(t, "custom domain", created.ID, err, func(c context.Context) error {
+				_, e := r.Delete(c, infer.DeleteRequest[DomainState]{ID: created.ID})
+				return e
+			}, func(c context.Context) (string, error) {
+				v, e := r.Read(c, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
+				return v.ID, e
+			})
+			requireWorkloadCreateNoError(t, "custom domain", err, domainCreateRequestKeys(target.compose), targetPresent, targetReady, "Domain/custom-certificate/"+target.name)
+			owner := registerLiveCleanup(t, "custom domain", created.ID, func(c context.Context) error {
+				_, e := r.Delete(c, infer.DeleteRequest[DomainState]{ID: created.ID})
+				return e
+			}, func(c context.Context) (string, error) {
+				v, e := r.Read(c, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
+				return v.ID, e
+			})
+			read, err := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID, State: created.Output})
+			requireWorkloadLifecycleNoError(t, "custom domain", err)
+			requireLiveEqual(t, "custom domain.certificateType", CertificateCustom, read.Inputs.CertificateType)
+			requireLiveEqual(t, "custom domain.customCertResolver", &resolver, read.Inputs.CustomCertResolver)
+			requireLiveEqual(t, "custom domain.https", true, read.Inputs.HTTPS)
+			requireLiveEqual(t, "custom domain.stripPath", true, read.Inputs.StripPath)
+			imported, err := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
+			requireWorkloadLifecycleNoError(t, "custom domain", err)
+			requireLiveEqual(t, "custom domain.certificateType import", CertificateCustom, imported.Inputs.CertificateType)
+			requireLiveEqual(t, "custom domain.customCertResolver import", &resolver, imported.Inputs.CustomCertResolver)
+			err = deleteAndVerifyLiveOwned(ctx, func() error {
+				_, e := r.Delete(ctx, infer.DeleteRequest[DomainState]{ID: created.ID})
+				return e
+			}, func() (string, error) {
+				gone, e := r.Read(ctx, infer.ReadRequest[DomainArgs, DomainState]{ID: created.ID})
+				return gone.ID, e
+			}, owner)
+			requireWorkloadLifecycleNoError(t, "custom domain", err)
 		})
 	}
 

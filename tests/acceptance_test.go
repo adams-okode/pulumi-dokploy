@@ -74,8 +74,8 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 			t.Errorf("live acceptance README is missing %q", required)
 		}
 	}
-	if !strings.Contains(readme, "planned and not active") {
-		t.Error("README does not identify custom certificate resolver support as planned and inactive")
+	if !strings.Contains(readme, "active custom certificate") {
+		t.Error("README does not identify custom certificate resolver support as active")
 	}
 
 	commandsStart := strings.Index(readme, "## Test commands")
