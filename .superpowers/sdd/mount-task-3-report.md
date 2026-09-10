@@ -39,3 +39,17 @@ Complete. Production provider behavior was not changed.
 
 - Live lifecycle verification was not executed against Dokploy because the required explicit acceptance opt-in and credentials were unavailable; the focused command recorded the expected skip.
 - The pre-existing deletion of `.superpowers/sdd/task-1-report.md` was not staged or modified by this task.
+
+## P1 Follow-up
+
+- Added immediate PostgreSQL fixture ownership with disarmable cleanup. The
+  fixture cleanup is registered before `runLiveMountLifecycle`; because cleanup
+  is LIFO, Mount fallback cleanup runs first on lifecycle failure. Successful
+  execution explicitly disarms and runs fixture cleanup once, after Mount
+  absence and before releasing the database lease.
+- Added `TestPostgresMountCleanupOwnershipRunsMountBeforeFixture`, covering the
+  failure-path cleanup order and exactly-once disarming behavior.
+- **P1 RED:** `go test ./provider -run TestPostgresMountCleanupOwnershipRunsMountBeforeFixture -count=1` failed with expected order `fixture, mount` versus actual required `mount, fixture`.
+- **P1 GREEN:** `go test ./provider -run 'TestPostgresMountCleanupOwnershipRunsMountBeforeFixture|TestMountDiffCartesianMatrix|TestMountUpdateBodyAndRedeployMatrix|TestHeavyOperation|TestMountTargetDispatch' -count=1` — PASS.
+- **Full verification:** `go test ./...` — PASS; `git diff --check` — PASS.
+- P1 commit: recorded after this report update.

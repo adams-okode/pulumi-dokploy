@@ -313,13 +313,22 @@ func TestLiveTier2Workloads(t *testing.T) {
 	// removed before the next one is started.
 	t.Run("MountDispatch/postgres", func(t *testing.T) {
 		fixture := createDispatchDatabase(t, ctx, api, environmentID, "postgres")
+		// Register the fixture immediately. runLiveMountLifecycle registers its
+		// mount owner after this one, so Go's LIFO cleanup guarantees the mount is
+		// removed before the database fixture (and therefore before its lease is
+		// released) if any lifecycle assertion fails.
+		fixtureOwner := newLiveCleanupOwner(func() { fixture.cleanup(t) })
+		t.Cleanup(fixtureOwner.cleanupOnce)
 		mount := MountArgs{Type: mountTypeBind, MountPath: "/mnt/postgres", HostPath: stringPtr(filepath.Join("/tmp", liveRunName("postgres-mount"))), PostgresID: &fixture.id}
 		t.Cleanup(registerLiveSecrets(value(mount.HostPath)))
 		targetReplacement := mount
 		targetReplacement.PostgresID = nil
 		targetReplacement.ApplicationID = &applicationID
 		runLiveMountLifecycle(t, ctx, api, mount, targetReplacement)
-		fixture.cleanup(t)
+		// The mount helper disarms its owner after absence is verified. Only then
+		// clean the fixture, exactly once, while retaining the heavy-operation
+		// lease until the dependent mount is gone.
+		fixtureOwner.cleanupOnce()
 	})
 
 	for _, target := range []string{"compose", "mysql", "mariadb", "redis"} {

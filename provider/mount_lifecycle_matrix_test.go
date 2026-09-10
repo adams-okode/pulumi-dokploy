@@ -233,6 +233,20 @@ func TestMountDiffCartesianMatrix(t *testing.T) {
 	}
 }
 
+func TestPostgresMountCleanupOwnershipRunsMountBeforeFixture(t *testing.T) {
+	var order []string
+	fixtureOwner := newLiveCleanupOwner(func() { order = append(order, "fixture") })
+	mountOwner := newLiveCleanupOwner(func() { order = append(order, "mount") })
+
+	// This models a lifecycle failure: the mount owner is registered after the
+	// fixture owner, so fallback cleanup must run in reverse registration order.
+	mountOwner.cleanupOnce()
+	fixtureOwner.cleanupOnce()
+	fixtureOwner.cleanupOnce()
+
+	require.Equal(t, []string{"mount", "fixture"}, order)
+}
+
 func mountArgsForMatrix(mountType, targetField, targetID string) MountArgs {
 	args := MountArgs{Type: mountType, MountPath: "/data"}
 	setMountTarget(&args, targetField, targetID)
