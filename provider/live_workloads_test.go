@@ -529,10 +529,16 @@ func TestLiveTier2Workloads(t *testing.T) {
 			require.NotNil(t, response.JSON200)
 			require.NotNil(t, response.JSON200.ComposeId)
 			id := *response.JSON200.ComposeId
-			cleanupDirectCompose(t, api, id)
+			r := Compose{client: fixedClient(api)}
+			release := registerLiveCleanup(t, "compose", id, func(c context.Context) error {
+				_, deleteErr := r.Delete(c, infer.DeleteRequest[ComposeState]{ID: id})
+				return deleteErr
+			}, func(c context.Context) (string, error) {
+				gone, readErr := r.Read(c, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+				return gone.ID, readErr
+			})
 			source := ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://github.com/dimeskigj/pulumi-dokploy", Branch: "main", ComposePath: defaultComposePath}}
 			t.Cleanup(registerLiveComposeSourceMetadata(source))
-			r := Compose{client: fixedClient(api)}
 			requireNoError(t, configureComposeSource(ctx, api, id, source))
 			requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGit))
 			read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: source}}})
@@ -550,11 +556,14 @@ func TestLiveTier2Workloads(t *testing.T) {
 			assertComposeSourceFields(t, source, imported.Inputs.Source)
 			cleanupCtx, cancelCleanup := cleanupContext()
 			defer cancelCleanup()
-			_, err = r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+			err = deleteAndVerifyLiveOwned(cleanupCtx, func() error {
+				_, deleteErr := r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+				return deleteErr
+			}, func() (string, error) {
+				gone, readErr := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+				return gone.ID, readErr
+			}, release)
 			requireNoError(t, err)
-			gone, err := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
-			requireNoError(t, err)
-			requireLiveEqual(t, "compose.id after delete", "", gone.ID)
 		})
 		if composeGitLabSource.Type == ComposeSourceGitLab {
 			t.Run("compose-gitlab", func(t *testing.T) {
@@ -563,20 +572,17 @@ func TestLiveTier2Workloads(t *testing.T) {
 				require.NotNil(t, response.JSON200)
 				require.NotNil(t, response.JSON200.ComposeId)
 				id := *response.JSON200.ComposeId
-				t.Cleanup(func() {
-					r := Compose{client: fixedClient(api)}
-					liveCleanupVerified(t, "compose", id, func(ctx context.Context) error {
-						_, err := r.Delete(ctx, infer.DeleteRequest[ComposeState]{ID: id})
-						return err
-					}, func(ctx context.Context) (string, error) {
-						read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
-						return read.ID, err
-					})
+				r := Compose{client: fixedClient(api)}
+				release := registerLiveCleanup(t, "compose", id, func(c context.Context) error {
+					_, deleteErr := r.Delete(c, infer.DeleteRequest[ComposeState]{ID: id})
+					return deleteErr
+				}, func(c context.Context) (string, error) {
+					gone, readErr := r.Read(c, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+					return gone.ID, readErr
 				})
 				t.Cleanup(registerLiveComposeSourceMetadata(composeGitLabSource))
 				requireNoError(t, configureComposeSource(ctx, api, id, composeGitLabSource))
 				requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGitLab))
-				r := Compose{client: fixedClient(api)}
 				read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: composeGitLabSource}}})
 				requireNoError(t, err)
 				assertComposeSourceFields(t, composeGitLabSource, read.Inputs.Source)
@@ -592,11 +598,14 @@ func TestLiveTier2Workloads(t *testing.T) {
 				assertComposeSourceFields(t, composeGitLabSource, imported.Inputs.Source)
 				cleanupCtx, cancelCleanup := cleanupContext()
 				defer cancelCleanup()
-				_, err = r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+				err = deleteAndVerifyLiveOwned(cleanupCtx, func() error {
+					_, deleteErr := r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+					return deleteErr
+				}, func() (string, error) {
+					gone, readErr := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+					return gone.ID, readErr
+				}, release)
 				requireNoError(t, err)
-				gone, err := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
-				requireNoError(t, err)
-				requireLiveEqual(t, "compose.id after delete", "", gone.ID)
 			})
 		} else {
 			t.Run("compose-gitlab", func(t *testing.T) { t.Skip("dedicated GitLab source prerequisite variables are not configured") })

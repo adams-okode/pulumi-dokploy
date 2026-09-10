@@ -67,6 +67,10 @@ func assertComposeSourceFields(t *testing.T, want, got ComposeSource) {
 	t.Helper()
 	require.Equal(t, want.Type, got.Type)
 	if want.Git != nil {
+		requireLiveEqual(t, "compose.source.git", true, got.Git != nil)
+		if got.Git == nil {
+			return
+		}
 		requireLiveEqual(t, "compose.source.git.url", want.Git.URL, got.Git.URL)
 		requireLiveEqual(t, "compose.source.git.branch", want.Git.Branch, got.Git.Branch)
 		requireLiveEqual(t, "compose.source.git.composePath", want.Git.ComposePath, got.Git.ComposePath)
@@ -75,6 +79,10 @@ func assertComposeSourceFields(t *testing.T, want, got ComposeSource) {
 		requireLiveEqual(t, "compose.source.git.enableSubmodules", want.Git.EnableSubmodules, got.Git.EnableSubmodules)
 	}
 	if want.GitLab != nil {
+		requireLiveEqual(t, "compose.source.gitlab", true, got.GitLab != nil)
+		if got.GitLab == nil {
+			return
+		}
 		requireLiveEqual(t, "compose.source.gitlab.integrationId", want.GitLab.IntegrationID, got.GitLab.IntegrationID)
 		requireLiveEqual(t, "compose.source.gitlab.projectId", want.GitLab.ProjectID, got.GitLab.ProjectID)
 		requireLiveEqual(t, "compose.source.gitlab.owner", want.GitLab.Owner, got.GitLab.Owner)
