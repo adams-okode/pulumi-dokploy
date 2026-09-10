@@ -30,31 +30,41 @@ func TestApplicationGitSourceSavesAndClearsSSHKey(t *testing.T) {
 
 func TestApplicationSourceIDOnlyReadReconstructsAllFields(t *testing.T) {
 	tests := []struct {
-		name     string
-		response string
-		want     ApplicationSource
+		name            string
+		response        string
+		want            ApplicationSource
+		registryID      *string
+		buildRegistryID *string
 	}{
 		{
 			name:     "git",
-			response: `{"applicationId":"a1","type":"git","customGitUrl":"https://git.test/repo","customGitBranch":"release","customGitBuildPath":"services/api","customGitSSHKeyId":"ssh-1","watchPaths":["services/**","README.md"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Containerfile","dockerContextPath":"services/api","dockerBuildStage":"production"}`,
+			response: `{"applicationId":"a1","type":"git","registryId":"registry-git","buildRegistryId":"build-registry-git","customGitUrl":"https://git.test/repo","customGitBranch":"release","customGitBuildPath":"services/api","customGitSSHKeyId":"ssh-1","watchPaths":["services/**","README.md"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Containerfile","dockerContextPath":"services/api","dockerBuildStage":"production"}`,
 			want: ApplicationSource{Type: SourceGit, Git: &GitApplicationSource{
 				URL: "https://git.test/repo", Branch: "release", BuildPath: stringPtr("services/api"), SSHKeyID: stringPtr("ssh-1"),
 				WatchPaths: []string{"services/**", "README.md"}, EnableSubmodules: true,
 				Build: ApplicationBuild{Type: BuildDockerfile, Dockerfile: stringPtr("Containerfile"), DockerContextPath: stringPtr("services/api"), DockerBuildStage: stringPtr("production")},
-			}}},
+			}},
+			registryID:      stringPtr("registry-git"),
+			buildRegistryID: stringPtr("build-registry-git"),
+		},
 		{
-			name:     "docker",
-			response: `{"applicationId":"a1","type":"docker","dockerImage":"registry.test/team/api:1","registryUrl":"https://registry.test","username":"alice"}`,
-			want:     ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "registry.test/team/api:1", RegistryURL: stringPtr("https://registry.test"), Username: stringPtr("alice")}},
+			name:            "docker",
+			response:        `{"applicationId":"a1","type":"docker","registryId":"registry-docker","buildRegistryId":"build-registry-docker","dockerImage":"registry.test/team/api:1","registryUrl":"https://registry.test","username":"alice"}`,
+			want:            ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "registry.test/team/api:1", RegistryURL: stringPtr("https://registry.test"), Username: stringPtr("alice")}},
+			registryID:      stringPtr("registry-docker"),
+			buildRegistryID: stringPtr("build-registry-docker"),
 		},
 		{
 			name:     "gitlab",
-			response: `{"applicationId":"a1","type":"gitlab","gitlabId":"integration-1","gitlabProjectId":42,"gitlabOwner":"owner","gitlabPathNamespace":"platform/api","gitlabRepository":"service","gitlabBranch":"main","gitlabBuildPath":".","watchPaths":["cmd/**"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Dockerfile","dockerContextPath":".","dockerBuildStage":"release"}`,
+			response: `{"applicationId":"a1","type":"gitlab","registryId":"registry-gitlab","buildRegistryId":"build-registry-gitlab","gitlabId":"integration-1","gitlabProjectId":42,"gitlabOwner":"owner","gitlabPathNamespace":"platform/api","gitlabRepository":"service","gitlabBranch":"main","gitlabBuildPath":".","watchPaths":["cmd/**"],"enableSubmodules":true,"buildType":"dockerfile","dockerfile":"Dockerfile","dockerContextPath":".","dockerBuildStage":"release"}`,
 			want: ApplicationSource{Type: SourceGitLab, GitLab: &GitLabAppSource{
 				IntegrationID: "integration-1", ProjectID: 42, Owner: "owner", Namespace: "platform/api", Repository: "service", Branch: "main", BuildPath: stringPtr("."),
 				WatchPaths: []string{"cmd/**"}, EnableSubmodules: true,
 				Build: ApplicationBuild{Type: BuildDockerfile, Dockerfile: stringPtr("Dockerfile"), DockerContextPath: stringPtr("."), DockerBuildStage: stringPtr("release")},
-			}}},
+			}},
+			registryID:      stringPtr("registry-gitlab"),
+			buildRegistryID: stringPtr("build-registry-gitlab"),
+		},
 	}
 
 	for _, tc := range tests {
@@ -63,6 +73,8 @@ func TestApplicationSourceIDOnlyReadReconstructsAllFields(t *testing.T) {
 			got, err := (Application{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: "a1"})
 			require.NoError(t, err)
 			assertApplicationSourceFields(t, tc.want, got.Inputs.Source)
+			requireLiveEqual(t, "application.registryId", tc.registryID, got.Inputs.RegistryID)
+			requireLiveEqual(t, "application.buildRegistryId", tc.buildRegistryID, got.Inputs.BuildRegistryID)
 		})
 	}
 }

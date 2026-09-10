@@ -489,8 +489,14 @@ func TestLiveTier2Workloads(t *testing.T) {
 				require.NotNil(t, response.JSON200)
 				require.NotNil(t, response.JSON200.ApplicationId)
 				id := *response.JSON200.ApplicationId
-				cleanupDirectApplication(t, api, id)
 				r := Application{client: fixedClient(api)}
+				release := registerLiveCleanup(t, "application", id, func(c context.Context) error {
+					_, deleteErr := r.Delete(c, infer.DeleteRequest[ApplicationState]{ID: id})
+					return deleteErr
+				}, func(c context.Context) (string, error) {
+					gone, readErr := r.Read(c, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
+					return gone.ID, readErr
+				})
 				requireNoError(t, configureApplicationSource(ctx, api, id, variant.source))
 				requireNoError(t, configureApplicationBuild(ctx, api, id, variant.source))
 				read, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: ApplicationState{ApplicationArgs: ApplicationArgs{Source: variant.source}}})
@@ -515,7 +521,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 				}, func() (string, error) {
 					gone, readErr := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
 					return gone.ID, readErr
-				}, func() {})
+				}, release)
 				requireNoError(t, err)
 			})
 		}
