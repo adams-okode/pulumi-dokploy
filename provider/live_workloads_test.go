@@ -530,15 +530,31 @@ func TestLiveTier2Workloads(t *testing.T) {
 			require.NotNil(t, response.JSON200.ComposeId)
 			id := *response.JSON200.ComposeId
 			cleanupDirectCompose(t, api, id)
-			source := ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://github.com/dimeskigj/pulumi-dokploy", Branch: "main"}}
+			source := ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://github.com/dimeskigj/pulumi-dokploy", Branch: "main", ComposePath: defaultComposePath}}
+			t.Cleanup(registerLiveComposeSourceMetadata(source))
+			r := Compose{client: fixedClient(api)}
 			requireNoError(t, configureComposeSource(ctx, api, id, source))
 			requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGit))
-			read, err := (Compose{client: fixedClient(api)}).Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+			read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: source}}})
 			requireNoError(t, err)
-			require.Equal(t, ComposeSourceGit, read.Inputs.Source.Type)
-			require.NotNil(t, read.Inputs.Source.Git)
-			require.Equal(t, source.Git.URL, read.Inputs.Source.Git.URL)
-			require.Equal(t, source.Git.Branch, read.Inputs.Source.Git.Branch)
+			assertComposeSourceFields(t, source, read.Inputs.Source)
+			updated := read.Inputs
+			updated.Description = stringPtr("compose source metadata update")
+			_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+			requireNoError(t, err)
+			postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
+			requireNoError(t, err)
+			assertComposeSourceFields(t, source, postUpdate.Inputs.Source)
+			imported, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+			requireNoError(t, err)
+			assertComposeSourceFields(t, source, imported.Inputs.Source)
+			cleanupCtx, cancelCleanup := cleanupContext()
+			defer cancelCleanup()
+			_, err = r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+			requireNoError(t, err)
+			gone, err := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+			requireNoError(t, err)
+			requireLiveEqual(t, "compose.id after delete", "", gone.ID)
 		})
 		if composeGitLabSource.Type == ComposeSourceGitLab {
 			t.Run("compose-gitlab", func(t *testing.T) {
@@ -557,11 +573,30 @@ func TestLiveTier2Workloads(t *testing.T) {
 						return read.ID, err
 					})
 				})
+				t.Cleanup(registerLiveComposeSourceMetadata(composeGitLabSource))
 				requireNoError(t, configureComposeSource(ctx, api, id, composeGitLabSource))
 				requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGitLab))
-				read, err := (Compose{client: fixedClient(api)}).Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+				r := Compose{client: fixedClient(api)}
+				read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: composeGitLabSource}}})
 				requireNoError(t, err)
-				require.Equal(t, ComposeSourceGitLab, read.Inputs.Source.Type)
+				assertComposeSourceFields(t, composeGitLabSource, read.Inputs.Source)
+				updated := read.Inputs
+				updated.Description = stringPtr("compose gitlab source metadata update")
+				_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+				requireNoError(t, err)
+				postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
+				requireNoError(t, err)
+				assertComposeSourceFields(t, composeGitLabSource, postUpdate.Inputs.Source)
+				imported, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+				requireNoError(t, err)
+				assertComposeSourceFields(t, composeGitLabSource, imported.Inputs.Source)
+				cleanupCtx, cancelCleanup := cleanupContext()
+				defer cancelCleanup()
+				_, err = r.Delete(cleanupCtx, infer.DeleteRequest[ComposeState]{ID: id, State: imported.State})
+				requireNoError(t, err)
+				gone, err := r.Read(cleanupCtx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id})
+				requireNoError(t, err)
+				requireLiveEqual(t, "compose.id after delete", "", gone.ID)
 			})
 		} else {
 			t.Run("compose-gitlab", func(t *testing.T) { t.Skip("dedicated GitLab source prerequisite variables are not configured") })
@@ -710,6 +745,39 @@ func registerLiveApplicationSourceMetadata(source ApplicationSource) func() {
 	return registerLiveSecrets(values...)
 }
 
+func registerLiveComposeSourceMetadata(source ComposeSource) func() {
+	values := []string{}
+	add := func(value string) {
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	switch source.Type {
+	case ComposeSourceGit:
+		add(source.Git.URL)
+		add(source.Git.Branch)
+		add(source.Git.ComposePath)
+		if source.Git.SSHKeyID != nil {
+			add(*source.Git.SSHKeyID)
+		}
+		for _, path := range source.Git.WatchPaths {
+			add(path)
+		}
+	case ComposeSourceGitLab:
+		add(source.GitLab.IntegrationID)
+		add(strconv.Itoa(source.GitLab.ProjectID))
+		add(source.GitLab.Owner)
+		add(source.GitLab.Namespace)
+		add(source.GitLab.Repository)
+		add(source.GitLab.Branch)
+		add(source.GitLab.ComposePath)
+		for _, path := range source.GitLab.WatchPaths {
+			add(path)
+		}
+	}
+	return registerLiveSecrets(values...)
+}
+
 func liveGitLabApplicationSource() (source ApplicationSource) {
 	id, project, owner, namespace, repository, branch := os.Getenv("DOKPLOY_GITLAB_INTEGRATION_ID"), os.Getenv("DOKPLOY_GITLAB_PROJECT_ID"), os.Getenv("DOKPLOY_GITLAB_OWNER"), os.Getenv("DOKPLOY_GITLAB_NAMESPACE"), os.Getenv("DOKPLOY_GITLAB_REPOSITORY"), os.Getenv("DOKPLOY_GITLAB_BRANCH")
 	projectID, err := strconv.Atoi(project)
@@ -731,7 +799,7 @@ func gitLabComposeSource() ComposeSource {
 	if !ok {
 		return ComposeSource{}
 	}
-	return ComposeSource{Type: ComposeSourceGitLab, GitLab: &GitLabComposeSource{IntegrationID: id, ProjectID: projectID, Owner: owner, Namespace: namespace, Repository: repository, Branch: branch}}
+	return ComposeSource{Type: ComposeSourceGitLab, GitLab: &GitLabComposeSource{IntegrationID: id, ProjectID: projectID, Owner: owner, Namespace: namespace, Repository: repository, Branch: branch, ComposePath: defaultComposePath}}
 }
 
 func cleanupDirectApplication(t *testing.T, api *client.Client, id string) {

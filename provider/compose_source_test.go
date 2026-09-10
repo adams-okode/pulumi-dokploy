@@ -1,13 +1,91 @@
 package dokploy
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
+	"github.com/stretchr/testify/require"
 )
+
+func TestComposeSourceNormalReadReconstructsAllFields(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		want     ComposeSource
+	}{
+		{
+			name:     "git",
+			response: `{"composeId":"c1","name":"demo","environmentId":"e1","composeStatus":"done","type":"git","customGitUrl":"https://git.test/repo","customGitBranch":"release","composePath":"deploy/compose.yml","customGitSSHKeyId":"ssh-1","watchPaths":["deploy/**","README.md"],"enableSubmodules":true}`,
+			want:     ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://git.test/repo", Branch: "release", ComposePath: "deploy/compose.yml", SSHKeyID: stringPtr("ssh-1"), WatchPaths: []string{"deploy/**", "README.md"}, EnableSubmodules: true}},
+		},
+		{
+			name:     "gitlab",
+			response: `{"composeId":"c1","name":"demo","environmentId":"e1","composeStatus":"done","type":"gitlab","gitlabId":"integration-1","gitlabProjectId":42,"gitlabOwner":"owner","gitlabPathNamespace":"platform/api","gitlabRepository":"service","gitlabBranch":"main","composePath":"deploy/compose.yml","watchPaths":["cmd/**"],"enableSubmodules":true}`,
+			want:     ComposeSource{Type: ComposeSourceGitLab, GitLab: &GitLabComposeSource{IntegrationID: "integration-1", ProjectID: 42, Owner: "owner", Namespace: "platform/api", Repository: "service", Branch: "main", ComposePath: "deploy/compose.yml", WatchPaths: []string{"cmd/**"}, EnableSubmodules: true}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScriptedServer(t, expectGET("/api/compose.one", map[string][]string{"composeId": {"c1"}}, http.StatusOK, tc.response))
+			got, err := (Compose{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ComposeArgs, ComposeState]{ID: "c1"})
+			require.NoError(t, err)
+			assertComposeSourceFields(t, tc.want, got.Inputs.Source)
+		})
+	}
+}
+
+func TestComposeSourceIDOnlyReadReconstructsAllFields(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		want     ComposeSource
+	}{
+		{
+			name:     "git",
+			response: `{"composeId":"c1","composeStatus":"done","sourceType":"git","customGitUrl":"https://git.test/repo","customGitBranch":"release","composePath":"deploy/compose.yml","customGitSSHKeyId":"ssh-1","watchPaths":["deploy/**","README.md"],"enableSubmodules":true}`,
+			want:     ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://git.test/repo", Branch: "release", ComposePath: "deploy/compose.yml", SSHKeyID: stringPtr("ssh-1"), WatchPaths: []string{"deploy/**", "README.md"}, EnableSubmodules: true}},
+		},
+		{
+			name:     "gitlab",
+			response: `{"composeId":"c1","composeStatus":"done","sourceType":"gitlab","gitlabId":"integration-1","gitlabProjectId":42,"gitlabOwner":"owner","gitlabPathNamespace":"platform/api","gitlabRepository":"service","gitlabBranch":"main","composePath":"deploy/compose.yml","watchPaths":["cmd/**"],"enableSubmodules":true}`,
+			want:     ComposeSource{Type: ComposeSourceGitLab, GitLab: &GitLabComposeSource{IntegrationID: "integration-1", ProjectID: 42, Owner: "owner", Namespace: "platform/api", Repository: "service", Branch: "main", ComposePath: "deploy/compose.yml", WatchPaths: []string{"cmd/**"}, EnableSubmodules: true}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScriptedServer(t, expectGET("/api/compose.one", map[string][]string{"composeId": {"c1"}}, http.StatusOK, tc.response))
+			got, err := (Compose{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ComposeArgs, ComposeState]{ID: "c1"})
+			require.NoError(t, err)
+			assertComposeSourceFields(t, tc.want, got.Inputs.Source)
+		})
+	}
+}
+
+func assertComposeSourceFields(t *testing.T, want, got ComposeSource) {
+	t.Helper()
+	require.Equal(t, want.Type, got.Type)
+	if want.Git != nil {
+		requireLiveEqual(t, "compose.source.git.url", want.Git.URL, got.Git.URL)
+		requireLiveEqual(t, "compose.source.git.branch", want.Git.Branch, got.Git.Branch)
+		requireLiveEqual(t, "compose.source.git.composePath", want.Git.ComposePath, got.Git.ComposePath)
+		requireLiveEqual(t, "compose.source.git.sshKeyId", want.Git.SSHKeyID, got.Git.SSHKeyID)
+		requireLiveEqual(t, "compose.source.git.watchPaths", want.Git.WatchPaths, got.Git.WatchPaths)
+		requireLiveEqual(t, "compose.source.git.enableSubmodules", want.Git.EnableSubmodules, got.Git.EnableSubmodules)
+	}
+	if want.GitLab != nil {
+		requireLiveEqual(t, "compose.source.gitlab.integrationId", want.GitLab.IntegrationID, got.GitLab.IntegrationID)
+		requireLiveEqual(t, "compose.source.gitlab.projectId", want.GitLab.ProjectID, got.GitLab.ProjectID)
+		requireLiveEqual(t, "compose.source.gitlab.owner", want.GitLab.Owner, got.GitLab.Owner)
+		requireLiveEqual(t, "compose.source.gitlab.namespace", want.GitLab.Namespace, got.GitLab.Namespace)
+		requireLiveEqual(t, "compose.source.gitlab.repository", want.GitLab.Repository, got.GitLab.Repository)
+		requireLiveEqual(t, "compose.source.gitlab.branch", want.GitLab.Branch, got.GitLab.Branch)
+		requireLiveEqual(t, "compose.source.gitlab.composePath", want.GitLab.ComposePath, got.GitLab.ComposePath)
+		requireLiveEqual(t, "compose.source.gitlab.watchPaths", want.GitLab.WatchPaths, got.GitLab.WatchPaths)
+		requireLiveEqual(t, "compose.source.gitlab.enableSubmodules", want.GitLab.EnableSubmodules, got.GitLab.EnableSubmodules)
+	}
+}
 
 func TestComposeSourceValidateRequiresExactlyOneConfiguredVariant(t *testing.T) {
 	validGit := &GitComposeSource{URL: "https://example.test/repo", Branch: "main"}
