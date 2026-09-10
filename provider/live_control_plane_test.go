@@ -297,25 +297,28 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireNoError(t, err)
 		read, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
-		updatedInputs, completeMutation := liveRegistryUpdatedArgs(read.Inputs)
-		if !completeMutation {
-			t.Skip("complete Registry mutation requires distinct valid DOKPLOY_REGISTRY_UPDATED_URL, DOKPLOY_REGISTRY_UPDATED_USERNAME, DOKPLOY_REGISTRY_UPDATED_PASSWORD, and DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX")
-		}
-		updatedInputs.Name = read.Inputs.Name + "-updated"
-		if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
-			updatedInputs.ServerID = &serverID
-		}
-		t.Cleanup(registerLiveSecrets(updatedInputs.Username, updatedInputs.Password, updatedInputs.URL, value(updatedInputs.ImagePrefix)))
-		_, err = r.Update(ctx, infer.UpdateRequest[RegistryArgs, RegistryState]{ID: created.ID, Inputs: updatedInputs, State: read.State})
-		requireNoError(t, err)
-		postUpdate, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
-		requireNoError(t, err)
-		require.Equal(t, updatedInputs.Name, postUpdate.Inputs.Name)
-		requireLiveEqual(t, "registry.username", updatedInputs.Username, postUpdate.Inputs.Username)
-		requireLiveEqual(t, "registry.password", updatedInputs.Password, postUpdate.Inputs.Password)
-		requireLiveEqual(t, "registry.url", updatedInputs.URL, postUpdate.Inputs.URL)
-		requireLiveEqual(t, "registry.imagePrefix", value(updatedInputs.ImagePrefix), value(postUpdate.Inputs.ImagePrefix))
-		requireLiveEqual(t, "registry.serverId", value(updatedInputs.ServerID), value(postUpdate.Inputs.ServerID))
+		postUpdate := read
+		t.Run("mutation", func(t *testing.T) {
+			updatedInputs, completeMutation := liveRegistryUpdatedArgs(read.Inputs)
+			if !completeMutation {
+				t.Skip("complete Registry mutation requires distinct valid DOKPLOY_REGISTRY_UPDATED_URL, DOKPLOY_REGISTRY_UPDATED_USERNAME, DOKPLOY_REGISTRY_UPDATED_PASSWORD, and DOKPLOY_REGISTRY_UPDATED_IMAGE_PREFIX")
+			}
+			updatedInputs.Name = read.Inputs.Name + "-updated"
+			if serverID := os.Getenv("DOKPLOY_ACCEPTANCE_SERVER_ID"); serverID != "" {
+				updatedInputs.ServerID = &serverID
+			}
+			t.Cleanup(registerLiveSecrets(updatedInputs.Username, updatedInputs.Password, updatedInputs.URL, value(updatedInputs.ImagePrefix)))
+			_, err = r.Update(ctx, infer.UpdateRequest[RegistryArgs, RegistryState]{ID: created.ID, Inputs: updatedInputs, State: read.State})
+			requireNoError(t, err)
+			postUpdate, err = r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
+			requireNoError(t, err)
+			require.Equal(t, updatedInputs.Name, postUpdate.Inputs.Name)
+			requireLiveEqual(t, "registry.username", updatedInputs.Username, postUpdate.Inputs.Username)
+			requireLiveEqual(t, "registry.password", updatedInputs.Password, postUpdate.Inputs.Password)
+			requireLiveEqual(t, "registry.url", updatedInputs.URL, postUpdate.Inputs.URL)
+			requireLiveEqual(t, "registry.imagePrefix", value(updatedInputs.ImagePrefix), value(postUpdate.Inputs.ImagePrefix))
+			requireLiveEqual(t, "registry.serverId", value(updatedInputs.ServerID), value(postUpdate.Inputs.ServerID))
+		})
 		imported, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, created.ID, imported.State.RegistryID)

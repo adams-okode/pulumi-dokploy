@@ -36,9 +36,10 @@
 
 ## Concerns
 
-- Live Registry connection fields retain configured valid credentials and URL
-  during the update so prerequisite validation remains safe; the update
-  request and read assertions still cover every mutable Registry field.
+- Complete live Registry mutation uses separately configured alternate URL,
+  username, password, and image-prefix values. The mutation subtest skips when
+  any alternate is absent or not distinct, while baseline Registry lifecycle
+  coverage continues.
 - No live Dokploy credentials were available, so live API behavior was not
   exercised in this worktree.
 
@@ -66,3 +67,16 @@
   Destination fields are still mutated and verified.
 - Workflow and `tests/README.md` document the optional prerequisites; the
   workflow passes them only to Tier 1.
+
+## Documentation-fix evidence
+
+- Registry baseline create/read/import/diff/delete now runs independently; only
+  the nested `Registry/mutation` subtest skips when alternate credentials are
+  absent. Cleanup is registered immediately after create and remains owned by
+  the parent test, so a mutation skip cannot leak the created Registry.
+- The stale Registry concern was corrected to describe distinct alternate
+  values rather than retaining the original connection values.
+- Focused review-fix suite: PASS; `TestLiveTier1ControlPlane` skips without
+  acceptance credentials.
+- Full provider, short package, race, repository, and `git diff --check`
+  verification: PASS.
