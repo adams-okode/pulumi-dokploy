@@ -2,6 +2,8 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 
 	dokploy "github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -48,9 +51,19 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	// the first preview. Cleanup is deliberately bounded and uses no state edits.
 	t.Cleanup(func() {
 		destroyErr, removeErr := cleanupLifecycleStack(2*time.Minute,
-			func(ctx context.Context) error {
-				_, err := stack.Destroy(ctx)
-				return err
+			func(ctx context.Context) (auto.DestroyResult, error) {
+				result, err := stack.Destroy(ctx)
+				if err != nil {
+					return result, err
+				}
+				deployment, exportErr := stack.Export(ctx)
+				if exportErr != nil {
+					return result, exportErr
+				}
+				if stateErr := validateDestroyedState(deployment); stateErr != nil {
+					return result, stateErr
+				}
+				return result, nil
 			},
 			func(ctx context.Context) error {
 				return stack.Workspace().RemoveStack(ctx, stackName)
@@ -60,6 +73,15 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 		}
 		if removeErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("remove lifecycle smoke workspace: "+removeErr.Error(), cfg))
+			return
+		}
+		listCtx, cancelList := context.WithTimeout(context.Background(), 2*time.Minute)
+		stacks, listErr := stack.Workspace().ListStacks(listCtx)
+		cancelList()
+		if listErr != nil {
+			t.Errorf("%s", sanitizeAcceptanceDiagnostic("list lifecycle smoke workspace: "+listErr.Error(), cfg))
+		} else if stackErr := validateStackRemoved(stacks, stackName); stackErr != nil {
+			t.Errorf("%s", sanitizeAcceptanceDiagnostic(stackErr.Error(), cfg))
 		}
 	})
 	if err := stack.SetConfig(ctx, "dokploy:endpoint", auto.ConfigValue{Value: cfg.Endpoint}); err != nil {
@@ -68,13 +90,16 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	if err := stack.SetConfig(ctx, "dokploy:apiKey", auto.ConfigValue{Value: cfg.APIKey, Secret: true}); err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("configure API key: "+err.Error(), cfg))
 	}
-	if _, err := stack.Preview(ctx); err != nil {
+	revisionOnePreview, err := stack.Preview(ctx)
+	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision one with unresolved chained outputs: "+err.Error(), cfg))
 	}
+	assertPreviewSummary(t, revisionOnePreview, "revision one")
 	revisionOneUp, err := stack.Up(ctx)
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision one: "+err.Error(), cfg))
 	}
+	assertUpdateSummary(t, revisionOneUp, "revision one")
 	revisionOne := assertLifecycleOutputs(t, revisionOneUp.Outputs, lifecycleRevisionOneValues(), cfg, nil)
 	if _, err := stack.Refresh(ctx); err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision one: "+err.Error(), cfg))
@@ -82,13 +107,16 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	assertRefreshedLifecycleOutputs(t, ctx, stack, lifecycleRevisionOneValues(), cfg, &revisionOne)
 
 	stack.Workspace().SetProgram(lifecycleRevisionTwo(cfg))
-	if _, err := stack.Preview(ctx); err != nil {
+	revisionTwoPreview, err := stack.Preview(ctx)
+	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision two: "+err.Error(), cfg))
 	}
+	assertPreviewSummary(t, revisionTwoPreview, "revision two")
 	revisionTwoUp, err := stack.Up(ctx)
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision two: "+err.Error(), cfg))
 	}
+	assertUpdateSummary(t, revisionTwoUp, "revision two")
 	assertLifecycleOutputs(t, revisionTwoUp.Outputs, lifecycleRevisionTwoValues(), cfg, &revisionOne)
 	if _, err := stack.Refresh(ctx); err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision two: "+err.Error(), cfg))
@@ -199,15 +227,90 @@ func sanitizeAcceptanceDiagnostic(diagnostic string, cfg liveConfig) string {
 	return diagnostic
 }
 
-func cleanupLifecycleStack(timeout time.Duration, destroy, remove func(context.Context) error) (error, error) {
+func cleanupLifecycleStack(timeout time.Duration, destroy func(context.Context) (auto.DestroyResult, error), remove func(context.Context) error) (error, error) {
 	destroyCtx, cancelDestroy := context.WithTimeout(context.Background(), timeout)
-	destroyErr := destroy(destroyCtx)
+	_, destroyErr := destroy(destroyCtx)
 	cancelDestroy()
 
 	removeCtx, cancelRemove := context.WithTimeout(context.Background(), timeout)
 	removeErr := remove(removeCtx)
 	cancelRemove()
 	return destroyErr, removeErr
+}
+
+func validateLifecycleChanges(phase string, changes map[string]int) error {
+	if phase == "revision one" && changes["create"] != 4 {
+		return fmt.Errorf("%s expected four creates, got %d", phase, changes["create"])
+	}
+	if phase == "revision two" && changes["update"] == 0 {
+		return fmt.Errorf("%s expected at least one update", phase)
+	}
+	if changes["replace"] != 0 {
+		return fmt.Errorf("%s contains replacement operations: %d", phase, changes["replace"])
+	}
+	if changes["delete"] != 0 {
+		return fmt.Errorf("%s contains deletion operations: %d", phase, changes["delete"])
+	}
+	return nil
+}
+
+func normalizeLifecycleChanges(changes map[apitype.OpType]int) map[string]int {
+	result := make(map[string]int, len(changes))
+	for operation, count := range changes {
+		result[strings.ToLower(string(operation))] += count
+	}
+	return result
+}
+
+func validatePreviewSummary(summary auto.PreviewResult, phase string) error {
+	return validateLifecycleChanges(phase, normalizeLifecycleChanges(summary.ChangeSummary))
+}
+
+func validateUpdateSummary(summary auto.UpResult, phase string) error {
+	if summary.Summary.ResourceChanges == nil {
+		return errors.New("update summary has no resource changes")
+	}
+	return validateLifecycleChanges(phase, *summary.Summary.ResourceChanges)
+}
+
+func assertPreviewSummary(t *testing.T, summary auto.PreviewResult, phase string) {
+	t.Helper()
+	if err := validatePreviewSummary(summary, phase); err != nil {
+		t.Fatalf("%s preview summary: %v", phase, err)
+	}
+}
+
+func assertUpdateSummary(t *testing.T, summary auto.UpResult, phase string) {
+	t.Helper()
+	if err := validateUpdateSummary(summary, phase); err != nil {
+		t.Fatalf("%s update summary: %v", phase, err)
+	}
+}
+
+func validateDestroyedState(deployment apitype.UntypedDeployment) error {
+	var state struct {
+		Resources []struct {
+			Type string `json:"type"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(deployment.Deployment, &state); err != nil {
+		return fmt.Errorf("decode exported destroy state: %w", err)
+	}
+	for _, resource := range state.Resources {
+		if strings.HasPrefix(resource.Type, "dokploy:index:") {
+			return fmt.Errorf("destroy state still contains managed resource type %q", resource.Type)
+		}
+	}
+	return nil
+}
+
+func validateStackRemoved(stacks []auto.StackSummary, stackName string) error {
+	for _, stack := range stacks {
+		if stack.Name == stackName {
+			return fmt.Errorf("removed stack %q is still listed", stackName)
+		}
+	}
+	return nil
 }
 
 type lifecycleIDs struct {

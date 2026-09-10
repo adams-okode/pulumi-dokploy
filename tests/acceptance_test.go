@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -315,10 +318,10 @@ func TestSanitizeAcceptanceDiagnosticRedactsConfiguredValues(t *testing.T) {
 func TestLifecycleSmokeCleanupUsesIndependentContexts(t *testing.T) {
 	var destroyDeadline, removeDeadline time.Time
 	destroyErr, removeErr := cleanupLifecycleStack(5*time.Millisecond,
-		func(ctx context.Context) error {
+		func(ctx context.Context) (auto.DestroyResult, error) {
 			destroyDeadline, _ = ctx.Deadline()
 			<-ctx.Done()
-			return ctx.Err()
+			return auto.DestroyResult{}, ctx.Err()
 		},
 		func(ctx context.Context) error {
 			removeDeadline, _ = ctx.Deadline()
@@ -329,6 +332,71 @@ func TestLifecycleSmokeCleanupUsesIndependentContexts(t *testing.T) {
 	}
 	if destroyDeadline.IsZero() || removeDeadline.IsZero() || !removeDeadline.After(destroyDeadline) {
 		t.Fatalf("cleanup deadlines were not independent: destroy=%v remove=%v", destroyDeadline, removeDeadline)
+	}
+}
+
+func TestLifecycleSummaryRevisionOneRequiresFourCreates(t *testing.T) {
+	if err := validateLifecycleChanges("revision one", map[string]int{"create": 4}); err != nil {
+		t.Fatalf("validateLifecycleChanges() = %v, want nil", err)
+	}
+}
+
+func TestLifecycleSummaryRevisionTwoAllowsUpdates(t *testing.T) {
+	if err := validateLifecycleChanges("revision two", map[string]int{"update": 3}); err != nil {
+		t.Fatalf("validateLifecycleChanges() = %v, want nil", err)
+	}
+}
+
+func TestLifecycleSummaryRejectsReplacement(t *testing.T) {
+	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "replace": 1})
+	if err == nil || !strings.Contains(err.Error(), "replacement") {
+		t.Fatalf("validateLifecycleChanges() = %v, want replacement error", err)
+	}
+}
+
+func TestLifecycleSummaryRejectsDeletion(t *testing.T) {
+	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "delete": 1})
+	if err == nil || !strings.Contains(err.Error(), "deletion") {
+		t.Fatalf("validateLifecycleChanges() = %v, want deletion error", err)
+	}
+}
+
+func TestLifecycleSummaryAdapters(t *testing.T) {
+	preview := auto.PreviewResult{ChangeSummary: map[apitype.OpType]int{apitype.OpCreate: 4}}
+	if err := validatePreviewSummary(preview, "revision one"); err != nil {
+		t.Fatalf("validatePreviewSummary() = %v, want nil", err)
+	}
+	changes := map[string]int{"update": 3}
+	up := auto.UpResult{Summary: auto.UpdateSummary{ResourceChanges: &changes}}
+	if err := validateUpdateSummary(up, "revision two"); err != nil {
+		t.Fatalf("validateUpdateSummary() = %v, want nil", err)
+	}
+}
+
+func TestLifecycleDestroyStateFiltersManagedResources(t *testing.T) {
+	state, err := json.Marshal(map[string]any{"resources": []map[string]string{{"type": "pulumi:pulumi:Stack"}, {"type": "dokploy:index:Project"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDestroyedState(apitype.UntypedDeployment{Deployment: state}); err == nil {
+		t.Fatal("validateDestroyedState() = nil, want managed-resource error")
+	}
+	clean, err := json.Marshal(map[string]any{"resources": []map[string]string{{"type": "pulumi:pulumi:Stack"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDestroyedState(apitype.UntypedDeployment{Deployment: clean}); err != nil {
+		t.Fatalf("validateDestroyedState() = %v, want nil", err)
+	}
+}
+
+func TestLifecycleStackRemovalRequiresAbsentName(t *testing.T) {
+	stacks := []auto.StackSummary{{Name: "other"}}
+	if err := validateStackRemoved(stacks, "pulumi-acceptance-stack-run"); err != nil {
+		t.Fatalf("validateStackRemoved() = %v, want nil", err)
+	}
+	if err := validateStackRemoved(append(stacks, auto.StackSummary{Name: "pulumi-acceptance-stack-run"}), "pulumi-acceptance-stack-run"); err == nil {
+		t.Fatal("validateStackRemoved() = nil, want stack-present error")
 	}
 }
 
