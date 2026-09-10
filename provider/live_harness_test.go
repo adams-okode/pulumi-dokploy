@@ -165,6 +165,9 @@ func handleLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id
 
 func processLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func(), probes ...func(context.Context) error) error {
 	t.Helper()
+	if createErr == nil {
+		return nil
+	}
 	lease.holdForFollowUp = createErr != nil
 	cleanupLiveHeavyCreateFailure(t, lease, id, createErr, cleanup)
 	if createErr != nil && classifyLiveServerHealthFailure(createErr) {

@@ -18,6 +18,22 @@ Verification:
 - `go test ./... -count=1` — PASS
 - `git diff --check` — PASS
 
+## Final Lease-Retention Fix
+
+`processLiveHeavyCreateError` now returns immediately for a successful create,
+leaving the heavy-operation lease untouched for normal lifecycle cleanup. A
+deterministic test proves the lease blocks overlap after success and permits a
+subsequent operation only after exactly-once normal release. Error cleanup and
+follow-up probe ordering remain unchanged.
+
+Final verification:
+
+- `go test ./provider -run '^TestSuccessfulCreateRetainsHeavyLeaseUntilNormalRelease$' -count=1` — PASS
+- `go test ./provider -run 'Test(ClassifyLiveServerHealthFailure|VerifyLiveServerHealth|HeavyOperationProbe|FailedHeavyOperationProbe|DisabledAcceptanceDoesNotInvokeHealthProbe|CreateTimeout|SuccessfulCreateRetainsHeavyLease|ServerHealthFailure|OrdinaryLiveResult)' -count=1` — PASS
+- `go test ./provider -count=1` — PASS
+- `go test ./... -count=1` — PASS
+- `git diff --check` — PASS
+
 ## Remaining Follow-up Fix
 
 Create-time timeout handling now cleans partial resources while retaining the

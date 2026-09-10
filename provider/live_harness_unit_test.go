@@ -694,6 +694,21 @@ func TestCreateTimeoutHandlerSkipsProbeWhenAcceptanceDisabled(t *testing.T) {
 	require.True(t, lease.release(t))
 }
 
+func TestSuccessfulCreateRetainsHeavyLeaseUntilNormalRelease(t *testing.T) {
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	lease := beginLiveHeavyOperation(t, "successful-create")
+	require.NoError(t, processLiveHeavyCreateError(t, lease, "created-id", nil, func() {
+		t.Fatal("successful create must not invoke error cleanup")
+	}))
+	_, err := acquireLiveHeavyOperation(t.Context(), "overlap", nil)
+	require.Error(t, err, "successful create must retain its lease")
+	require.True(t, lease.release(t))
+	next, err := acquireLiveHeavyOperation(t.Context(), "next", nil)
+	require.NoError(t, err)
+	require.True(t, next.release(t))
+}
+
 func TestCleanupFailureCreatesNonSecretStopMarker(t *testing.T) {
 	resetLiveHarnessState()
 	t.Cleanup(resetLiveHarnessState)
