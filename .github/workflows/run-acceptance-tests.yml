@@ -193,12 +193,25 @@ jobs:
           done
           exit "$failed"
       - name: Tar provider binaries
-        run: tar -zcf ${{ github.workspace }}/bin/provider.tar.gz -C ${{ github.workspace }}/bin/ pulumi-resource-${{ env.PROVIDER }}
+        if: ${{ always() }}
+        run: |
+          provider_binary="${{ github.workspace }}/bin/pulumi-resource-${{ env.PROVIDER }}"
+          archive="${{ github.workspace }}/bin/provider.tar.gz"
+          status="${{ github.workspace }}/bin/provider-artifact-status.txt"
+          if [ -x "$provider_binary" ]; then
+            tar -zcf "$archive" -C "${{ github.workspace }}/bin" "pulumi-resource-${{ env.PROVIDER }}"
+          else
+            printf '%s\n' 'provider binary unavailable' > "$status"
+          fi
       - name: Upload artifacts
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pulumi-${{ env.PROVIDER }}-provider.tar.gz
-          path: ${{ github.workspace }}/bin/provider.tar.gz
+          path: |
+            ${{ github.workspace }}/bin/provider.tar.gz
+            ${{ github.workspace }}/bin/provider-artifact-status.txt
+          if-no-files-found: warn
   build_sdks:
     needs: prerequisites
     runs-on: ubuntu-latest
