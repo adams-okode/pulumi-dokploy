@@ -51,3 +51,34 @@ PASS
 
 - Live Dokploy execution was not available in this environment, so live API update/delete behavior remains unobserved here.
 - The worktree already had an unrelated deletion of `.superpowers/sdd/task-1-report.md`; it was not modified or staged.
+
+## Review-fix follow-up
+
+Commit `ef389e3e5729d52c787438ce00e47df480c686a1` fixes the review findings:
+
+- Git and GitLab Compose cases now register `registerLiveCleanup` ownership immediately after creation. Explicit deletion uses `deleteAndVerifyLiveOwned`; fallback ownership is released only after bounded absence verification, preventing a second cleanup attempt.
+- Compose source assertions now check Git and GitLab variant pointers before dereferencing them and report only the variant field name on mismatch.
+
+TDD evidence:
+
+```text
+go test ./provider -run TestAssertComposeSourceFieldsReportsMissingVariantWithoutPanic -count=1
+RED: failed with the expected nil-pointer panic before the guard was added.
+
+go test ./provider -run 'TestComposeSourceIDOnlyReadReconstructsAllFields|TestComposeSourceNormalReadReconstructsAllFields' -count=1
+PASS
+
+go test ./provider -run 'TestComposeSource|TestLiveTier2Workloads/SourceVariants' -count=1 -v
+PASS; live acceptance skipped without opt-in credentials.
+
+go test ./provider
+PASS
+
+go test ./...
+PASS
+
+git diff --check
+PASS
+```
+
+Self-review: both source variants use the same disarmable ownership pattern; explicit cleanup verifies absence through the existing bounded helper before releasing fallback ownership. No production files or unrelated work were changed.
