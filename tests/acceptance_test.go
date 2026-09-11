@@ -238,6 +238,9 @@ func TestLifecycleSmokeProgram(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if got := mocks.customResourceCount(); got != 4 {
+				t.Fatalf("captured custom resource count = %d, want four", got)
+			}
 			project := mocks.resource("dokploy:index:Project", acceptanceEntityName("project", "mock"))
 			assertString(t, project, "description", variant.values.description)
 			environment := mocks.resource("dokploy:index:Environment", acceptanceEntityName("environment", "mock"))
@@ -316,37 +319,44 @@ func TestSanitizeAcceptanceDiagnosticRedactsConfiguredValues(t *testing.T) {
 }
 
 func TestLifecycleSmokeCleanupUsesIndependentContexts(t *testing.T) {
-	var destroyDeadline, removeDeadline time.Time
-	destroyErr, removeErr, listErr := cleanupLifecycleStack(5*time.Millisecond,
+	var destroyDeadline, exportDeadline, removeDeadline, listDeadline time.Time
+	destroyErr, exportErr, removeErr, listErr := cleanupLifecycleStack(5*time.Millisecond,
 		func(ctx context.Context) (auto.DestroyResult, error) {
 			destroyDeadline, _ = ctx.Deadline()
 			<-ctx.Done()
-			return auto.DestroyResult{}, ctx.Err()
+			return auto.DestroyResult{}, errors.New("destroy failed")
 		},
-		func(context.Context, auto.DestroyResult) error { return nil },
+		func(ctx context.Context, _ auto.DestroyResult) error {
+			exportDeadline, _ = ctx.Deadline()
+			return errors.New("export failed")
+		},
 		func(ctx context.Context) error {
 			removeDeadline, _ = ctx.Deadline()
 			return nil
 		},
-		func(context.Context) error { return nil })
-	if destroyErr == nil || removeErr != nil || listErr != nil {
-		t.Fatalf("cleanup errors = %v, %v, %v; want destroy timeout and successful removal/list", destroyErr, removeErr, listErr)
+		func(ctx context.Context) error {
+			listDeadline, _ = ctx.Deadline()
+			return nil
+		})
+	if destroyErr == nil || exportErr == nil || removeErr != nil || listErr != nil {
+		t.Fatalf("cleanup errors = %v, %v, %v, %v; want destroy/export errors and successful removal/list", destroyErr, exportErr, removeErr, listErr)
 	}
-	if destroyDeadline.IsZero() || removeDeadline.IsZero() || !removeDeadline.After(destroyDeadline) {
-		t.Fatalf("cleanup deadlines were not independent: destroy=%v remove=%v", destroyDeadline, removeDeadline)
+	if destroyDeadline.IsZero() || exportDeadline.IsZero() || removeDeadline.IsZero() || listDeadline.IsZero() || !exportDeadline.After(destroyDeadline) || !removeDeadline.After(exportDeadline) || !listDeadline.After(removeDeadline) {
+		t.Fatalf("cleanup contexts were not independent: destroy=%v export=%v remove=%v list=%v", destroyDeadline, exportDeadline, removeDeadline, listDeadline)
 	}
 }
 
 func TestLifecycleSmokeCleanupRunsPostDestroyValidationAndAllCleanupSteps(t *testing.T) {
 	var order []string
+	destroyErrWant := errors.New("destroy failed")
 	postDestroyErr := errors.New("export validation failed")
 	removeErrWant := errors.New("remove failed")
 	listErrWant := errors.New("list failed")
 	var removeDeadline, listDeadline time.Time
-	destroyErr, removeErr, listErr := cleanupLifecycleStack(1*time.Second,
+	destroyErr, exportErr, removeErr, listErr := cleanupLifecycleStack(1*time.Second,
 		func(context.Context) (auto.DestroyResult, error) {
 			order = append(order, "destroy")
-			return auto.DestroyResult{}, nil
+			return auto.DestroyResult{}, destroyErrWant
 		},
 		func(context.Context, auto.DestroyResult) error {
 			order = append(order, "export validation")
@@ -362,8 +372,8 @@ func TestLifecycleSmokeCleanupRunsPostDestroyValidationAndAllCleanupSteps(t *tes
 			listDeadline, _ = ctx.Deadline()
 			return listErrWant
 		})
-	if !errors.Is(destroyErr, postDestroyErr) || !errors.Is(removeErr, removeErrWant) || !errors.Is(listErr, listErrWant) {
-		t.Fatalf("cleanup errors = %v, %v, %v; want post-destroy, remove, and list errors", destroyErr, removeErr, listErr)
+	if !errors.Is(destroyErr, destroyErrWant) || !errors.Is(exportErr, postDestroyErr) || !errors.Is(removeErr, removeErrWant) || !errors.Is(listErr, listErrWant) {
+		t.Fatalf("cleanup errors = %v, %v, %v, %v; want destroy, post-destroy, remove, and list errors", destroyErr, exportErr, removeErr, listErr)
 	}
 	if got, want := strings.Join(order, ","), "destroy,export validation,remove,list"; got != want {
 		t.Fatalf("cleanup order = %q, want %q", got, want)
@@ -373,62 +383,69 @@ func TestLifecycleSmokeCleanupRunsPostDestroyValidationAndAllCleanupSteps(t *tes
 	}
 }
 
-func TestLifecycleSummaryRevisionOneRequiresFourCreates(t *testing.T) {
-	if err := validateLifecycleChanges("revision one", map[string]int{"create": 4}); err != nil {
-		t.Fatalf("validateLifecycleChanges() = %v, want nil", err)
+func TestLifecycleAggregateAllowsReadOperations(t *testing.T) {
+	if err := validateLifecycleAggregate("revision one", map[string]int{"create": 1, "read": 3, "same": 2}); err != nil {
+		t.Fatalf("validateLifecycleAggregate() = %v, want nil", err)
 	}
 }
 
-func TestLifecycleSummaryRevisionTwoAllowsUpdates(t *testing.T) {
-	if err := validateLifecycleChanges("revision two", map[string]int{"update": 3}); err != nil {
-		t.Fatalf("validateLifecycleChanges() = %v, want nil", err)
+func TestLifecycleAggregateAllowsExpectedUpdatesAndReads(t *testing.T) {
+	if err := validateLifecycleAggregate("revision two", map[string]int{"update": 1, "read": 3, "noop": 1}); err != nil {
+		t.Fatalf("validateLifecycleAggregate() = %v, want nil", err)
 	}
 }
 
-func TestLifecycleSummaryRevisionTwoRejectsUnexpectedCreates(t *testing.T) {
-	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "create": 1})
+func TestLifecycleAggregateRejectsUnexpectedCreates(t *testing.T) {
+	err := validateLifecycleAggregate("revision two", map[string]int{"update": 1, "create": 1})
 	if err == nil || !strings.Contains(err.Error(), "create") {
-		t.Fatalf("validateLifecycleChanges() = %v, want unexpected create error", err)
+		t.Fatalf("validateLifecycleAggregate() = %v, want unexpected create error", err)
 	}
 }
 
-func TestLifecycleSummaryRejectsUnsupportedOperations(t *testing.T) {
-	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "refresh": 1})
+func TestLifecycleAggregateRejectsUnsupportedOperations(t *testing.T) {
+	err := validateLifecycleAggregate("revision two", map[string]int{"update": 1, "refresh": 1})
 	if err == nil || !strings.Contains(err.Error(), "refresh") {
-		t.Fatalf("validateLifecycleChanges() = %v, want unsupported operation error", err)
+		t.Fatalf("validateLifecycleAggregate() = %v, want unsupported operation error", err)
 	}
 }
 
-func TestLifecycleSummaryRejectsReplacement(t *testing.T) {
-	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "replace": 1})
+func TestLifecycleAggregateRejectsReplacement(t *testing.T) {
+	err := validateLifecycleAggregate("revision two", map[string]int{"update": 1, "replace": 1})
 	if err == nil || !strings.Contains(err.Error(), "replacement") {
-		t.Fatalf("validateLifecycleChanges() = %v, want replacement error", err)
+		t.Fatalf("validateLifecycleAggregate() = %v, want replacement error", err)
 	}
 }
 
-func TestLifecycleSummaryRejectsDeletion(t *testing.T) {
-	err := validateLifecycleChanges("revision two", map[string]int{"update": 3, "delete": 1})
+func TestLifecycleAggregateDiagnosticsAreSorted(t *testing.T) {
+	err := validateLifecycleAggregate("revision two", map[string]int{"replace": 1, "delete": 1})
+	if err == nil || !strings.HasPrefix(err.Error(), "revision two contains deletion") {
+		t.Fatalf("validateLifecycleAggregate() = %v, want sorted deletion diagnostic", err)
+	}
+}
+
+func TestLifecycleAggregateRejectsDeletion(t *testing.T) {
+	err := validateLifecycleAggregate("revision two", map[string]int{"update": 1, "delete": 1})
 	if err == nil || !strings.Contains(err.Error(), "deletion") {
-		t.Fatalf("validateLifecycleChanges() = %v, want deletion error", err)
+		t.Fatalf("validateLifecycleAggregate() = %v, want deletion error", err)
 	}
 }
 
-func TestLifecycleSummaryAdapters(t *testing.T) {
-	preview := auto.PreviewResult{ChangeSummary: map[apitype.OpType]int{apitype.OpCreate: 4, apitype.OpSame: 2}}
+func TestLifecycleAggregateAdapters(t *testing.T) {
+	preview := auto.PreviewResult{ChangeSummary: map[apitype.OpType]int{apitype.OpCreate: 1, apitype.OpRead: 3, apitype.OpSame: 2}}
 	previewChanges := normalizeLifecycleChanges(preview.ChangeSummary)
-	if previewChanges["create"] != 4 || previewChanges["same"] != 2 {
-		t.Fatalf("preview adapter = %#v, want create=4 and same=2", previewChanges)
+	if previewChanges["create"] != 1 || previewChanges["read"] != 3 || previewChanges["same"] != 2 {
+		t.Fatalf("preview adapter = %#v, want create=1, read=3, and same=2", previewChanges)
 	}
-	if err := validatePreviewSummary(preview, "revision one"); err != nil {
-		t.Fatalf("validatePreviewSummary() = %v, want nil", err)
+	if err := validatePreviewAggregate(preview, "revision one"); err != nil {
+		t.Fatalf("validatePreviewAggregate() = %v, want nil", err)
 	}
-	changes := map[string]int{"update": 3, "noop": 1}
+	changes := map[string]int{"update": 1, "read": 3, "noop": 1}
 	up := auto.UpResult{Summary: auto.UpdateSummary{ResourceChanges: &changes}}
-	if err := validateUpdateSummary(up, "revision two"); err != nil {
+	if err := validateUpdateAggregate(up, "revision two"); err != nil {
 		t.Fatalf("update adapter = %v, want nil", err)
 	}
-	if err := validateUpdateSummary(auto.UpResult{}, "revision two"); err == nil {
-		t.Fatal("validateUpdateSummary() = nil for missing resource changes")
+	if err := validateUpdateAggregate(auto.UpResult{}, "revision two"); err == nil {
+		t.Fatal("validateUpdateAggregate() = nil for missing resource changes")
 	}
 }
 
@@ -511,6 +528,18 @@ func (m *captureLifecycleResources) idHistory(token, name string) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]string(nil), m.histories[token+"/"+name]...)
+}
+
+func (m *captureLifecycleResources) customResourceCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for key := range m.resources {
+		if strings.HasPrefix(key, "dokploy:index:") && !strings.Contains(key, "/pulumi-acceptance-read-") {
+			count++
+		}
+	}
+	return count
 }
 
 func assertString(t *testing.T, values resource.PropertyMap, key, want string) {

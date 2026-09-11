@@ -50,7 +50,7 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	// Register cleanup immediately, including for failures during configuration or
 	// the first preview. Cleanup is deliberately bounded and uses no state edits.
 	t.Cleanup(func() {
-		destroyErr, removeErr, listErr := cleanupLifecycleStack(2*time.Minute,
+		destroyErr, exportErr, removeErr, listErr := cleanupLifecycleStack(2*time.Minute,
 			func(ctx context.Context) (auto.DestroyResult, error) {
 				return stack.Destroy(ctx)
 			},
@@ -74,6 +74,9 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 		if destroyErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("destroy lifecycle smoke stack: "+destroyErr.Error(), cfg))
 		}
+		if exportErr != nil {
+			t.Errorf("%s", sanitizeAcceptanceDiagnostic("export lifecycle smoke state: "+exportErr.Error(), cfg))
+		}
 		if removeErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("remove lifecycle smoke workspace: "+removeErr.Error(), cfg))
 		}
@@ -91,12 +94,12 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision one with unresolved chained outputs: "+err.Error(), cfg))
 	}
-	assertPreviewSummary(t, revisionOnePreview, "revision one")
+	assertPreviewAggregate(t, revisionOnePreview, "revision one")
 	revisionOneUp, err := stack.Up(ctx)
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision one: "+err.Error(), cfg))
 	}
-	assertUpdateSummary(t, revisionOneUp, "revision one")
+	assertUpdateAggregate(t, revisionOneUp, "revision one")
 	revisionOne := assertLifecycleOutputs(t, revisionOneUp.Outputs, lifecycleRevisionOneValues(), cfg, nil)
 	if _, err := stack.Refresh(ctx); err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision one: "+err.Error(), cfg))
@@ -108,12 +111,12 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision two: "+err.Error(), cfg))
 	}
-	assertPreviewSummary(t, revisionTwoPreview, "revision two")
+	assertPreviewAggregate(t, revisionTwoPreview, "revision two")
 	revisionTwoUp, err := stack.Up(ctx)
 	if err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision two: "+err.Error(), cfg))
 	}
-	assertUpdateSummary(t, revisionTwoUp, "revision two")
+	assertUpdateAggregate(t, revisionTwoUp, "revision two")
 	assertLifecycleOutputs(t, revisionTwoUp.Outputs, lifecycleRevisionTwoValues(), cfg, &revisionOne)
 	if _, err := stack.Refresh(ctx); err != nil {
 		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision two: "+err.Error(), cfg))
@@ -230,13 +233,14 @@ func cleanupLifecycleStack(
 	validateExport func(context.Context, auto.DestroyResult) error,
 	remove func(context.Context) error,
 	list func(context.Context) error,
-) (error, error, error) {
+) (error, error, error, error) {
 	destroyCtx, cancelDestroy := context.WithTimeout(context.Background(), timeout)
 	destroyResult, destroyErr := destroy(destroyCtx)
-	if destroyErr == nil {
-		destroyErr = validateExport(destroyCtx, destroyResult)
-	}
 	cancelDestroy()
+
+	exportCtx, cancelExport := context.WithTimeout(context.Background(), timeout)
+	exportErr := validateExport(exportCtx, destroyResult)
+	cancelExport()
 
 	removeCtx, cancelRemove := context.WithTimeout(context.Background(), timeout)
 	removeErr := remove(removeCtx)
@@ -245,32 +249,42 @@ func cleanupLifecycleStack(
 	listCtx, cancelList := context.WithTimeout(context.Background(), timeout)
 	listErr := list(listCtx)
 	cancelList()
-	return destroyErr, removeErr, listErr
+	return destroyErr, exportErr, removeErr, listErr
 }
 
-func validateLifecycleChanges(phase string, changes map[string]int) error {
-	// The four custom resources declared by the lifecycle program have stable
-	// create/update counts under the pinned SDK. Provider/default resources are
-	// deliberately not counted: Pulumi may report them as same or noop.
-	expectedCustomChanges := map[string]int{}
+func validateLifecycleAggregate(phase string, changes map[string]int) error {
+	// ChangeSummary aggregates custom, provider, and default resources, so it
+	// cannot prove custom-resource counts. The stable proxy is at least one
+	// expected mutating operation; exact custom counts and identities come from
+	// mock resource capture and live output assertions instead.
+	expectedOperation := ""
 	switch phase {
 	case "revision one":
-		expectedCustomChanges["create"] = 4
+		expectedOperation = "create"
 	case "revision two":
-		expectedCustomChanges["update"] = 3
+		expectedOperation = "update"
 	default:
 		return fmt.Errorf("unsupported lifecycle phase %q", phase)
 	}
-	for operation, count := range changes {
+	operations := make([]string, 0, len(changes))
+	for operation := range changes {
+		operations = append(operations, operation)
+	}
+	sort.Strings(operations)
+	for _, operation := range operations {
+		count := changes[operation]
 		if count < 0 {
 			return fmt.Errorf("%s has negative %s count: %d", phase, operation, count)
 		}
 		switch operation {
-		case "same", "noop":
-			// Pulumi may report unchanged resources using either spelling.
+		case "read", "same", "noop":
+			// These operations do not claim a custom-resource mutation.
 		case "create", "update":
-			if count != expectedCustomChanges[operation] {
-				return fmt.Errorf("%s expected %d %s operations, got %d", phase, expectedCustomChanges[operation], operation, count)
+			if operation != expectedOperation {
+				return fmt.Errorf("%s contains unexpected %s operations: %d", phase, operation, count)
+			}
+			if count == 0 {
+				return fmt.Errorf("%s expected at least one %s operation", phase, expectedOperation)
 			}
 		case "replace":
 			return fmt.Errorf("%s contains replacement operations: %d", phase, count)
@@ -280,10 +294,8 @@ func validateLifecycleChanges(phase string, changes map[string]int) error {
 			return fmt.Errorf("%s contains unsupported %s operation: %d", phase, operation, count)
 		}
 	}
-	for operation, count := range expectedCustomChanges {
-		if changes[operation] != count {
-			return fmt.Errorf("%s expected %d %s operations, got %d", phase, count, operation, changes[operation])
-		}
+	if changes[expectedOperation] == 0 {
+		return fmt.Errorf("%s expected at least one %s operation", phase, expectedOperation)
 	}
 	return nil
 }
@@ -296,27 +308,27 @@ func normalizeLifecycleChanges(changes map[apitype.OpType]int) map[string]int {
 	return result
 }
 
-func validatePreviewSummary(summary auto.PreviewResult, phase string) error {
-	return validateLifecycleChanges(phase, normalizeLifecycleChanges(summary.ChangeSummary))
+func validatePreviewAggregate(summary auto.PreviewResult, phase string) error {
+	return validateLifecycleAggregate(phase, normalizeLifecycleChanges(summary.ChangeSummary))
 }
 
-func validateUpdateSummary(summary auto.UpResult, phase string) error {
+func validateUpdateAggregate(summary auto.UpResult, phase string) error {
 	if summary.Summary.ResourceChanges == nil {
 		return errors.New("update summary has no resource changes")
 	}
-	return validateLifecycleChanges(phase, *summary.Summary.ResourceChanges)
+	return validateLifecycleAggregate(phase, *summary.Summary.ResourceChanges)
 }
 
-func assertPreviewSummary(t *testing.T, summary auto.PreviewResult, phase string) {
+func assertPreviewAggregate(t *testing.T, summary auto.PreviewResult, phase string) {
 	t.Helper()
-	if err := validatePreviewSummary(summary, phase); err != nil {
+	if err := validatePreviewAggregate(summary, phase); err != nil {
 		t.Fatalf("%s preview summary: %v", phase, err)
 	}
 }
 
-func assertUpdateSummary(t *testing.T, summary auto.UpResult, phase string) {
+func assertUpdateAggregate(t *testing.T, summary auto.UpResult, phase string) {
 	t.Helper()
-	if err := validateUpdateSummary(summary, phase); err != nil {
+	if err := validateUpdateAggregate(summary, phase); err != nil {
 		t.Fatalf("%s update summary: %v", phase, err)
 	}
 }

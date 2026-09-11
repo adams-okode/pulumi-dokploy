@@ -6,8 +6,8 @@ Implemented and verified in the `live-acceptance-coverage-hardening` worktree.
 
 ## Changes
 
-- Added pure lifecycle summary validators and tests for four revision-one creates,
-  revision-two updates, and replacement/deletion rejection.
+- Added aggregate lifecycle validators and tests for expected mutating phases,
+  intentional reads/no-ops, and replacement/deletion rejection.
 - Captured and asserted Automation API preview and update summaries for both live
   revisions while retaining stable output/ID assertions.
 - Added supported export-state filtering after destroy and `ListStacks` absence
@@ -16,7 +16,7 @@ Implemented and verified in the `live-acceptance-coverage-hardening` worktree.
 
 ## Verification
 
-- `go test ./tests -run 'TestLifecycleSummary|TestLifecycleSmokeCleanup' -count=1`
+- `go test ./tests -run 'TestLifecycleAggregate|TestLifecycleSmokeCleanup' -count=1`
   — initially failed to compile before implementation because validators were
   undefined (TDD red phase).
 - `go test ./tests -run 'TestLifecycleSummary|TestLifecycleSmokeProgram|TestLifecycleSmokeCleanup' -count=1`
@@ -30,23 +30,34 @@ Implemented and verified in the `live-acceptance-coverage-hardening` worktree.
 ## Concerns
 
 Live assertions require the pinned Pulumi Automation API to report the expected
-resource operation summaries and exported deployment resource shape; no live
+aggregate operation categories and exported deployment resource shape; no live
 credentials or Pulumi CLI were available for execution in this environment.
 
 ## Quality finding follow-up
 
-- Revision summaries now require the exact stable custom-resource counts (four
-  creates for revision one and three updates for revision two), reject extra
-  creates and unsupported operations, and allow only `same`/`noop` ambient
-  reports in addition. Replacement and deletion diagnostics remain explicit.
+- Aggregate `ChangeSummary` is now treated honestly: it cannot identify custom
+  resources, so validation uses the strongest supported proxy (at least one
+  phase-appropriate create/update), allows intentional `read`/`same`/`noop`,
+  and rejects replace/delete/unsupported mutating operations. Exact four-custom
+  resource coverage is proved by mock resource capture and stable live IDs,
+  not by aggregate counts. This limitation is documented in the validator.
 - Preview and update adapter tests now cover deterministic conversion, allowed
-  no-op reports, and missing update summaries.
+  reads/no-ops, sorted diagnostics, and missing update summaries.
 - Cleanup orchestration now performs export validation after destroy, then runs
-  `RemoveStack` and `ListStacks` in independent contexts regardless of
-  post-destroy validation or earlier cleanup errors. Errors remain separately
-  observable.
+  export validation in its own bounded context even when destroy fails, then
+  runs `RemoveStack` and `ListStacks` in further independent contexts. All four
+  errors remain separately observable.
 
 Follow-up verification:
 
-- `go test ./tests -run 'TestLifecycleSummary|TestLifecycleSmokeProgram|TestLifecycleSmokeCleanup' -count=1` — PASS
+- `go test ./tests -run 'TestLifecycleAggregate|TestLifecycleSmokeProgram|TestLifecycleSmokeCleanup' -count=1` — PASS
 - `go test ./tests -run TestAccLifecycleSmoke -count=1 -v` — PASS; skipped without live acceptance configuration
+
+## Review correction
+
+The aggregate-operation design was corrected to avoid attributing provider or
+default-resource counts to custom resources. The validator now checks only
+phase-appropriate aggregate activity and forbidden operations; mock capture
+asserts the exact four custom resources and stable IDs. Destroy, export, remove,
+and list failures are returned independently, and export is attempted with its
+own bounded context even after destroy fails.
