@@ -64,3 +64,17 @@ timing-sensitive `TestBackupCreateCancellationErrorOmitsTargetID`, which left
 one scripted polling request when cancellation happened before the next poll.
 The race command otherwise completed the `tests` package; no race report was
 emitted.
+
+## Final verification
+
+- `go test ./provider -run 'Test(ApplicationSource|ComposeSource|Mount|Domain|Destination|Registry|LiveGate|ClassifyLiveServerHealth|OwnedWorkflow)' -count=1` — PASS.
+- `go test ./tests -run 'TestLifecycle|TestPulumiCLI' -count=1` — PASS.
+- `go test -short -count=1 ./provider/... ./internal/... ./tests/...` — PASS.
+- `go test -race ./provider/... ./internal/... -count=1` — PASS on rerun.
+- `go test ./... -count=1` — PASS on rerun with a 300-second timeout.
+- `go test ./provider -run '^TestBackupCreate(Cancellation|CancellationErrorOmitsTargetID)$' -count=20` — PASS.
+- `git diff --check` — PASS.
+
+`golangci-lint run` could not execute because `golangci-lint` is not installed
+in the environment. Live acceptance was not run because explicit credentials
+were unavailable. Existing unrelated working-tree changes were left untouched.
