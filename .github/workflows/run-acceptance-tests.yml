@@ -83,6 +83,7 @@ jobs:
           DOKPLOY_ACCEPTANCE_STOP_FILE: ${{ runner.temp }}/dokploy-acceptance-stop-${{ github.run_id }}-${{ github.run_attempt }}
           DOKPLOY_ENDPOINT: ${{ secrets.DOKPLOY_ENDPOINT }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_ACCEPTANCE_SERVER_ID: ${{ secrets.DOKPLOY_ACCEPTANCE_SERVER_ID }}
           DOKPLOY_REGISTRY_URL: ${{ secrets.DOKPLOY_REGISTRY_URL }}
           DOKPLOY_REGISTRY_USERNAME: ${{ secrets.DOKPLOY_REGISTRY_USERNAME }}
           DOKPLOY_REGISTRY_PASSWORD: ${{ secrets.DOKPLOY_REGISTRY_PASSWORD }}
@@ -112,6 +113,15 @@ jobs:
           DOKPLOY_ACCEPTANCE_STOP_FILE: ${{ runner.temp }}/dokploy-acceptance-stop-${{ github.run_id }}-${{ github.run_attempt }}
           DOKPLOY_ENDPOINT: ${{ secrets.DOKPLOY_ENDPOINT }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_ACCEPTANCE_SERVER_ID: ${{ secrets.DOKPLOY_ACCEPTANCE_SERVER_ID }}
+          DOKPLOY_GITLAB_INTEGRATION_ID: ${{ secrets.DOKPLOY_GITLAB_INTEGRATION_ID }}
+          DOKPLOY_GITLAB_PROJECT_ID: ${{ secrets.DOKPLOY_GITLAB_PROJECT_ID }}
+          DOKPLOY_GITLAB_OWNER: ${{ secrets.DOKPLOY_GITLAB_OWNER }}
+          DOKPLOY_GITLAB_NAMESPACE: ${{ secrets.DOKPLOY_GITLAB_NAMESPACE }}
+          DOKPLOY_GITLAB_REPOSITORY: ${{ secrets.DOKPLOY_GITLAB_REPOSITORY }}
+          DOKPLOY_GITLAB_BRANCH: ${{ secrets.DOKPLOY_GITLAB_BRANCH }}
+          DOKPLOY_GITLAB_USERNAME: ${{ secrets.DOKPLOY_GITLAB_USERNAME }}
+          DOKPLOY_GITLAB_TOKEN: ${{ secrets.DOKPLOY_GITLAB_TOKEN }}
           DOKPLOY_REGISTRY_URL: ${{ secrets.DOKPLOY_REGISTRY_URL }}
           DOKPLOY_REGISTRY_USERNAME: ${{ secrets.DOKPLOY_REGISTRY_USERNAME }}
           DOKPLOY_REGISTRY_PASSWORD: ${{ secrets.DOKPLOY_REGISTRY_PASSWORD }}

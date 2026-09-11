@@ -426,6 +426,14 @@ func TestSanitizedLiveErrorKeepsCallerContext(t *testing.T) {
 	require.NotContains(t, diagnostic, "secret-sentinel")
 }
 
+func TestRequireNoErrorUsesStructuralDiagnosticOnly(t *testing.T) {
+	t.Setenv("DOKPLOY_API_KEY", "raw-api-key")
+	got := structuralLiveError("Destination", "update", &client.APIError{StatusCode: 500, Message: "raw response body with resource-id"})
+	require.Equal(t, "Destination update failed", got)
+	require.NotContains(t, got, "raw response")
+	require.NotContains(t, got, "resource-id")
+}
+
 func TestRedactedLiveMismatchExcludesSecretSentinel(t *testing.T) {
 	message := redactedLiveMismatch("application.buildSecrets")
 	require.NotContains(t, message, "secret-sentinel")

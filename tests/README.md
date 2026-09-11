@@ -53,6 +53,8 @@ It is safety setup, not a process prerequisite.
 
 The server must support the resources selected by the tier. The operator must
 have permission to create and delete only the reserved test resources.
+Set `DOKPLOY_ACCEPTANCE_SERVER_ID` when Tier 1 or Tier 2 coverage requires an
+explicit server scope.
 
 ## Local setup
 
@@ -100,9 +102,10 @@ Destination provider mutation requires a separately validated provider value in
 Destination fields are mutated. GitLab coverage requires
 `DOKPLOY_GITLAB_INTEGRATION_ID`, `DOKPLOY_GITLAB_PROJECT_ID`,
 `DOKPLOY_GITLAB_OWNER`, `DOKPLOY_GITLAB_NAMESPACE`,
-`DOKPLOY_GITLAB_REPOSITORY`, and `DOKPLOY_GITLAB_BRANCH`, plus the configured
-GitLab credentials. The test skips each integration when its prerequisite is
-absent.
+`DOKPLOY_GITLAB_REPOSITORY`, and `DOKPLOY_GITLAB_BRANCH`, plus
+`DOKPLOY_GITLAB_USERNAME` and `DOKPLOY_GITLAB_TOKEN`. Tier 2 receives all
+GitLab variables from the protected workflow environment. The test skips each
+integration when its prerequisite is absent.
 
 MongoDB replica coverage requires `DOKPLOY_ACCEPTANCE_ALLOW_REPLICAS=1`; the
 database tier skips replica sets without that opt-in. The

@@ -36,3 +36,31 @@ Implemented on `fix/live-acceptance-findings` without live calls or `.env` use.
 - The focused backup regression suite, short provider/internal suite, provider/
   internal race suite, and whitespace check passed. Live Dokploy acceptance was
   not run for those backup fixes.
+
+## RED
+
+- Added focused structural-diagnostic coverage for live failures.
+- The workflow contract initially failed because the new protected variables
+  were absent from the Tier 2 contract and YAML indentation was invalid.
+
+## GREEN
+
+- `go test ./provider -run 'Test(RequireNoErrorUsesStructuralDiagnosticOnly|SuccessfulCreateRegistersCleanupAndExplicitDeleteReleasesIt|ExplicitDeleteRetainsOwnershipWhenAbsenceVerificationFails|OwnedWorkflow)$' -count=1`
+  passed.
+- `go test ./provider ./tests -count=1` passed.
+- `git diff --check` passed.
+
+The live control-plane delete helpers now retain fallback ownership until
+verified absence and release it exactly once after successful explicit cleanup.
+Generic live error assertions now emit structural resource/operation text only.
+Tier 1 and Tier 2 receive the configured server scope; Tier 2 receives all
+GitLab variables through protected workflow secrets. Documentation and the
+workflow contract list these variables without values.
+
+## Verification concern
+
+`go test -race ./provider ./tests -count=1` encountered the pre-existing
+timing-sensitive `TestBackupCreateCancellationErrorOmitsTargetID`, which left
+one scripted polling request when cancellation happened before the next poll.
+The race command otherwise completed the `tests` package; no race report was
+emitted.

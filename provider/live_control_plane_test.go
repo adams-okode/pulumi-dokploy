@@ -94,8 +94,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		ctx := liveContext(t, 2*time.Minute)
 		r := Project{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[ProjectArgs]{Inputs: ProjectArgs{Name: liveRunName("project")}})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "project", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "project", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: created.ID})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -124,7 +125,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err := r.Diff(ctx, infer.DiffRequest[ProjectArgs, ProjectState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
-		deleteAndReadProject(t, ctx, r, created.ID)
+		deleteAndReadProject(t, ctx, r, created.ID, release)
 	})
 
 	t.Run("Environment", func(t *testing.T) {
@@ -132,8 +133,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		projectID, _ := liveProject(t, ctx, api)
 		r := Environment{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[EnvironmentArgs]{Inputs: EnvironmentArgs{ProjectID: projectID, Name: liveRunName("environment")}})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "environment", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "environment", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[EnvironmentState]{ID: created.ID})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -161,7 +163,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err := r.Diff(ctx, infer.DiffRequest[EnvironmentArgs, EnvironmentState]{Inputs: EnvironmentArgs{ProjectID: postUpdate.Inputs.ProjectID + "-replacement", Name: postUpdate.Inputs.Name}, State: postUpdate.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["projectId"].Kind)
-		deleteAndReadEnvironment(t, ctx, r, created.ID)
+		deleteAndReadEnvironment(t, ctx, r, created.ID, release)
 	})
 
 	t.Run("Destination", func(t *testing.T) {
@@ -173,8 +175,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		}
 		t.Cleanup(registerLiveSecrets(inputs.AccessKey, inputs.SecretAccessKey, inputs.Endpoint))
 		created, err := r.Create(ctx, infer.CreateRequest[DestinationArgs]{Inputs: inputs})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "destination", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "destination", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[DestinationState]{ID: created.ID})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -223,7 +226,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err := r.Diff(ctx, infer.DiffRequest[DestinationArgs, DestinationState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
-		deleteAndReadDestination(t, ctx, r, created.ID)
+		deleteAndReadDestination(t, ctx, r, created.ID, release)
 	})
 
 	t.Run("SSHKey", func(t *testing.T) {
@@ -241,8 +244,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		privateKey, publicKey := liveSSHKeyPair(t)
 		r := SSHKey{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[SSHKeyArgs]{Inputs: SSHKeyArgs{Name: liveRunName("ssh-key"), PrivateKey: privateKey, PublicKey: publicKey}})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "ssh-key", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "ssh-key", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[SSHKeyState]{ID: created.ID, State: created.Output})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -270,7 +274,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err = r.Diff(ctx, infer.DiffRequest[SSHKeyArgs, SSHKeyState]{Inputs: SSHKeyArgs{Name: postUpdate.Inputs.Name, PrivateKey: privateKey, PublicKey: publicKey + "-replacement"}, State: postUpdate.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["publicKey"].Kind)
-		deleteAndReadSSHKey(t, ctx, r, created.ID, imported.State)
+		deleteAndReadSSHKey(t, ctx, r, created.ID, imported.State, release)
 	})
 
 	t.Run("Registry", func(t *testing.T) {
@@ -285,8 +289,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		}
 		t.Cleanup(registerLiveSecrets(args.Username, args.Password, args.URL, value(args.ImagePrefix)))
 		created, err := r.Create(ctx, infer.CreateRequest[RegistryArgs]{Inputs: args})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "registry", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "registry", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[RegistryState]{ID: created.ID, State: created.Output})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -325,15 +330,16 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err := r.Diff(ctx, infer.DiffRequest[RegistryArgs, RegistryState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
-		deleteAndReadRegistry(t, ctx, r, created.ID, imported.State)
+		deleteAndReadRegistry(t, ctx, r, created.ID, imported.State, release)
 	})
 
 	t.Run("Tag", func(t *testing.T) {
 		ctx := liveContext(t, 2*time.Minute)
 		r := Tag{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[TagArgs]{Inputs: TagArgs{Name: liveRunName("tag"), Color: stringPtr("#123456")}})
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "tag", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "tag", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[TagState]{ID: created.ID, State: created.Output})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -359,7 +365,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err := r.Diff(ctx, infer.DiffRequest[TagArgs, TagState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
-		deleteAndReadTag(t, ctx, r, created.ID)
+		deleteAndReadTag(t, ctx, r, created.ID, release)
 	})
 
 	t.Run("ProjectTag", func(t *testing.T) {
@@ -367,8 +373,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		projectID, _ := liveProject(t, ctx, api)
 		tag := Tag{client: fixedClient(api)}
 		tagCreated, err := tag.Create(ctx, infer.CreateRequest[TagArgs]{Inputs: TagArgs{Name: liveRunName("tag"), Color: stringPtr("#123456")}})
+		tagRelease := func() {}
 		if tagCreated.ID != "" {
-			deferLiveDelete(t, "tag", tagCreated.ID, func(ctx context.Context) error {
+			tagRelease = deferLiveDelete(t, "tag", tagCreated.ID, func(ctx context.Context) error {
 				_, err := tag.Delete(ctx, infer.DeleteRequest[TagState]{ID: tagCreated.ID, State: tagCreated.Output})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -386,8 +393,9 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 			})
 			recordLiveOutcome("ProjectTag", classification)
 		}
+		release := func() {}
 		if created.ID != "" {
-			deferLiveDelete(t, "project-tag", created.ID, func(ctx context.Context) error {
+			release = deferLiveDelete(t, "project-tag", created.ID, func(ctx context.Context) error {
 				_, err := r.Delete(ctx, infer.DeleteRequest[ProjectTagState]{ID: created.ID, State: created.Output})
 				return err
 			}, func(ctx context.Context) (string, error) {
@@ -405,81 +413,82 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		diff, err = r.Diff(ctx, infer.DiffRequest[ProjectTagArgs, ProjectTagState]{Inputs: ProjectTagArgs{ProjectID: projectID, TagID: tagCreated.ID + "-replacement"}, State: read.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["tagId"].Kind)
-		deleteAndReadProjectTag(t, ctx, r, created.ID, read.State)
+		deleteAndReadProjectTag(t, ctx, r, created.ID, read.State, release)
+		tagRelease()
 	})
 }
 
-func deferLiveDelete(t *testing.T, kind, id string, remove func(context.Context) error, read func(context.Context) (string, error)) {
+func deferLiveDelete(t *testing.T, kind, id string, remove func(context.Context) error, read func(context.Context) (string, error)) func() {
 	t.Helper()
-	t.Cleanup(func() { liveCleanupVerified(t, kind, id, remove, read) })
+	return registerLiveCleanup(t, kind, id, remove, read)
 }
-func deleteAndReadProject(t *testing.T, ctx context.Context, r Project, id string) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[ProjectState]{ID: id})
+func deleteAndReadProject(t *testing.T, ctx context.Context, r Project, id string, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: id})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[ProjectArgs, ProjectState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "Project", "delete", err)
 }
-func deleteAndReadEnvironment(t *testing.T, ctx context.Context, r Environment, id string) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[EnvironmentState]{ID: id})
+func deleteAndReadEnvironment(t *testing.T, ctx context.Context, r Environment, id string, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[EnvironmentState]{ID: id})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "Environment", "delete", err)
 }
-func deleteAndReadDestination(t *testing.T, ctx context.Context, r Destination, id string) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[DestinationState]{ID: id})
+func deleteAndReadDestination(t *testing.T, ctx context.Context, r Destination, id string, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[DestinationState]{ID: id})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[DestinationArgs, DestinationState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "Destination", "delete", err)
 }
-func deleteAndReadSSHKey(t *testing.T, ctx context.Context, r SSHKey, id string, state SSHKeyState) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[SSHKeyState]{ID: id, State: state})
+func deleteAndReadSSHKey(t *testing.T, ctx context.Context, r SSHKey, id string, state SSHKeyState, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[SSHKeyState]{ID: id, State: state})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[SSHKeyArgs, SSHKeyState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[SSHKeyArgs, SSHKeyState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "SSHKey", "delete", err)
 }
-func deleteAndReadRegistry(t *testing.T, ctx context.Context, r Registry, id string, state RegistryState) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[RegistryState]{ID: id, State: state})
+func deleteAndReadRegistry(t *testing.T, ctx context.Context, r Registry, id string, state RegistryState, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[RegistryState]{ID: id, State: state})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[RegistryArgs, RegistryState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "Registry", "delete", err)
 }
-func deleteAndReadTag(t *testing.T, ctx context.Context, r Tag, id string) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[TagState]{ID: id})
+func deleteAndReadTag(t *testing.T, ctx context.Context, r Tag, id string, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[TagState]{ID: id})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[TagArgs, TagState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "Tag", "delete", err)
 }
-func deleteAndReadProjectTag(t *testing.T, ctx context.Context, r ProjectTag, id string, state ProjectTagState) {
-	err := verifyLiveCleanup(ctx, func(c context.Context) error {
-		_, err := r.Delete(c, infer.DeleteRequest[ProjectTagState]{ID: id, State: state})
+func deleteAndReadProjectTag(t *testing.T, ctx context.Context, r ProjectTag, id string, state ProjectTagState, release func()) {
+	err := deleteAndVerifyLiveOwned(ctx, func() error {
+		_, err := r.Delete(ctx, infer.DeleteRequest[ProjectTagState]{ID: id, State: state})
 		return err
-	}, func(c context.Context) (string, error) {
-		read, err := r.Read(c, infer.ReadRequest[ProjectTagArgs, ProjectTagState]{ID: id})
+	}, func() (string, error) {
+		read, err := r.Read(ctx, infer.ReadRequest[ProjectTagArgs, ProjectTagState]{ID: id})
 		return read.ID, err
-	})
-	requireNoError(t, err)
+	}, release)
+	requireLiveLifecycleNoError(t, "ProjectTag", "delete", err)
 }

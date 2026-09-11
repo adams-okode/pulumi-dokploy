@@ -70,6 +70,9 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 		"DOKPLOY_GITLAB_NAMESPACE",
 		"DOKPLOY_GITLAB_REPOSITORY",
 		"DOKPLOY_GITLAB_BRANCH",
+		"DOKPLOY_GITLAB_USERNAME",
+		"DOKPLOY_GITLAB_TOKEN",
+		"DOKPLOY_ACCEPTANCE_SERVER_ID",
 		"docs/bugs/README.md",
 		"docs/bugs/2026-09-05-live-acceptance-run.md",
 	} {

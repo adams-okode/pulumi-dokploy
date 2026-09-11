@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -18,17 +17,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// requireNoError surfaces ResourceInitFailedError reasons without exposing
-// unsanitized credentials in live-test diagnostics.
+// requireNoError is retained for legacy call sites; live failures use a
+// structural diagnostic and never expose provider/API details.
 func requireNoError(t *testing.T, err error, msgAndArgs ...interface{}) {
 	t.Helper()
-	var initErr infer.ResourceInitFailedError
-	if errors.As(err, &initErr) {
-		t.Fatalf("%s (reasons: %s)", sanitizedLiveError(err, msgAndArgs...), sanitizeLiveDiagnostic(fmt.Sprint(initErr.Reasons)))
-	}
 	if err != nil {
-		t.Fatalf("%s", sanitizedLiveError(err, msgAndArgs...))
+		t.Fatalf("%s", structuralLiveError("live resource", "operation", err))
 	}
+}
+
+func structuralLiveError(resource, operation string, _ error) string {
+	return liveLifecycleDiagnostic(resource, operation, "", nil)
 }
 
 // Lifecycle diagnostics intentionally identify only structure. IDs, paths,
