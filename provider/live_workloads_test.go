@@ -54,6 +54,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 		inputs := ApplicationArgs{Name: liveRunName("application"), EnvironmentID: environmentID, Source: ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "nginx:1.27"}}}
 		t.Cleanup(registerLiveSecrets(value(inputs.Environment), value(inputs.BuildArgs), value(inputs.BuildSecrets), "APP_ENV_SENTINEL=1", "APP_BUILD_ARG_SENTINEL=1", "APP_BUILD_SECRET_SENTINEL=1"))
 		r := Application{client: fixedClient(api)}
+		lease := beginLiveHeavyOperation(t, "application-create", liveServerHealthProbe(api))
 		created, err := r.Create(ctx, infer.CreateRequest[ApplicationArgs]{Inputs: inputs})
 		cleanupAfterCreateError(t, "application", created.ID, err, func(c context.Context) error {
 			_, e := r.Delete(c, infer.DeleteRequest[ApplicationState]{ID: created.ID})
@@ -62,6 +63,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 			v, e := r.Read(c, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID})
 			return v.ID, e
 		})
+		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
 		require.NotEmpty(t, created.ID)
 		applicationID = created.ID
@@ -76,7 +78,9 @@ func TestLiveTier2Workloads(t *testing.T) {
 		updated.Name += "-updated"
 		updatedDescription := "updated by live workload test"
 		updated.Description = &updatedDescription
+		lease = beginLiveHeavyOperation(t, "application-update", liveServerHealthProbe(api))
 		changed, err := r.Update(ctx, infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: created.ID, Inputs: updated, State: read.State})
+		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
@@ -128,6 +132,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 		inputs := ComposeArgs{Name: liveRunName("compose"), EnvironmentID: environmentID, Source: ComposeSource{Type: ComposeSourceRaw, Raw: &RawComposeSource{ComposeFile: "services:\n  web:\n    image: nginx:1.27\n"}}}
 		t.Cleanup(registerLiveSecrets(value(inputs.Environment), "COMPOSE_ENV=1"))
 		r := Compose{client: fixedClient(api)}
+		lease := beginLiveHeavyOperation(t, "compose-create", liveServerHealthProbe(api))
 		created, err := r.Create(ctx, infer.CreateRequest[ComposeArgs]{Inputs: inputs})
 		cleanupAfterCreateError(t, "compose", created.ID, err, func(c context.Context) error {
 			_, e := r.Delete(c, infer.DeleteRequest[ComposeState]{ID: created.ID})
@@ -136,6 +141,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 			v, e := r.Read(c, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID})
 			return v.ID, e
 		})
+		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
 		require.NotEmpty(t, created.ID)
 		composeID = created.ID
@@ -149,7 +155,9 @@ func TestLiveTier2Workloads(t *testing.T) {
 		updated.Name += "-updated"
 		updatedDescription := "updated by live workload test"
 		updated.Description = &updatedDescription
+		lease = beginLiveHeavyOperation(t, "compose-update", liveServerHealthProbe(api))
 		changed, err := r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: created.ID, Inputs: updated, State: read.State})
+		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
@@ -494,6 +502,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 					t.Skip("dedicated source prerequisite variables are not configured")
 				}
 				t.Cleanup(registerLiveApplicationSourceMetadata(variant.source))
+				createLease := beginLiveHeavyOperation(t, "application-source-"+variant.name+"-create", liveServerHealthProbe(api))
+				defer createLease.releaseIfNeeded(t)
 				body := generated.ApplicationCreateJSONRequestBody{Name: liveRunName("application-" + variant.name), EnvironmentId: environmentID}
 				response, err := api.ApplicationCreateWithResponse(ctx, body)
 				requireNoError(t, err)
@@ -510,6 +520,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 				})
 				requireNoError(t, configureApplicationSource(ctx, api, id, variant.source))
 				requireNoError(t, configureApplicationBuild(ctx, api, id, variant.source))
+				createLease.releaseIfNeeded(t)
 				read, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: ApplicationState{ApplicationArgs: ApplicationArgs{Source: variant.source}}})
 				requireNoError(t, err)
 				assertLiveApplicationSource(t, variant.name, variant.source, read.Inputs.Source)
@@ -518,7 +529,9 @@ func TestLiveTier2Workloads(t *testing.T) {
 				}
 				updated := read.Inputs
 				updated.Description = stringPtr("source variant metadata update")
+				updateLease := beginLiveHeavyOperation(t, "application-source-"+variant.name+"-update", liveServerHealthProbe(api))
 				_, err = r.Update(ctx, infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: id, Inputs: updated, State: read.State})
+				updateLease.releaseIfNeeded(t)
 				requireNoError(t, err)
 				postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: read.State})
 				requireNoError(t, err)
@@ -539,6 +552,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 			})
 		}
 		t.Run("compose-git", func(t *testing.T) {
+			createLease := beginLiveHeavyOperation(t, "compose-source-git-create", liveServerHealthProbe(api))
+			defer createLease.releaseIfNeeded(t)
 			response, err := api.ComposeCreateWithResponse(ctx, generated.ComposeCreateJSONRequestBody{Name: liveRunName("compose-git"), EnvironmentId: environmentID, ComposeType: ptr(generated.ComposeCreateJSONBodyComposeType(ComposeDocker))})
 			requireNoError(t, err)
 			require.NotNil(t, response.JSON200)
@@ -556,12 +571,15 @@ func TestLiveTier2Workloads(t *testing.T) {
 			t.Cleanup(registerLiveComposeSourceMetadata(source))
 			requireNoError(t, configureComposeSource(ctx, api, id, source))
 			requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGit))
+			createLease.releaseIfNeeded(t)
 			read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: source}}})
 			requireNoError(t, err)
 			assertComposeSourceFields(t, source, read.Inputs.Source)
 			updated := read.Inputs
 			updated.Description = stringPtr("compose source metadata update")
+			updateLease := beginLiveHeavyOperation(t, "compose-source-git-update", liveServerHealthProbe(api))
 			_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+			updateLease.releaseIfNeeded(t)
 			requireNoError(t, err)
 			postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
 			requireNoError(t, err)
@@ -582,6 +600,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 		})
 		if composeGitLabSource.Type == ComposeSourceGitLab {
 			t.Run("compose-gitlab", func(t *testing.T) {
+				createLease := beginLiveHeavyOperation(t, "compose-source-gitlab-create", liveServerHealthProbe(api))
+				defer createLease.releaseIfNeeded(t)
 				response, err := api.ComposeCreateWithResponse(ctx, generated.ComposeCreateJSONRequestBody{Name: liveRunName("compose-gitlab"), EnvironmentId: environmentID, ComposeType: ptr(generated.ComposeCreateJSONBodyComposeType(ComposeDocker))})
 				requireNoError(t, err)
 				require.NotNil(t, response.JSON200)
@@ -598,12 +618,15 @@ func TestLiveTier2Workloads(t *testing.T) {
 				t.Cleanup(registerLiveComposeSourceMetadata(composeGitLabSource))
 				requireNoError(t, configureComposeSource(ctx, api, id, composeGitLabSource))
 				requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGitLab))
+				createLease.releaseIfNeeded(t)
 				read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: composeGitLabSource}}})
 				requireNoError(t, err)
 				assertComposeSourceFields(t, composeGitLabSource, read.Inputs.Source)
 				updated := read.Inputs
 				updated.Description = stringPtr("compose gitlab source metadata update")
+				updateLease := beginLiveHeavyOperation(t, "compose-source-gitlab-update", liveServerHealthProbe(api))
 				_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+				updateLease.releaseIfNeeded(t)
 				requireNoError(t, err)
 				postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
 				requireNoError(t, err)
@@ -880,7 +903,9 @@ func runLiveMountLifecycle(t *testing.T, ctx context.Context, api *client.Client
 		requireNoError(t, classificationErr)
 		t.Fatalf("workload target unavailable: %s", classification)
 	}
+	createLease := beginLiveHeavyOperation(t, "mount-create", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[MountArgs]{Inputs: inputs})
+	createLease.releaseIfNeeded(t)
 	// Ownership is registered before the create result is asserted so a partial
 	// create cannot outlive this subtest.
 	release := registerLiveCleanup(t, "mount", created.ID, func(c context.Context) error {
@@ -896,7 +921,9 @@ func runLiveMountLifecycle(t *testing.T, ctx context.Context, api *client.Client
 	requireWorkloadLifecycleNoError(t, "mount", err)
 	updated := read.Inputs
 	updated.MountPath += "-updated"
+	updateLease := beginLiveHeavyOperation(t, "mount-update", liveServerHealthProbe(api))
 	changed, err := r.Update(ctx, infer.UpdateRequest[MountArgs, MountState]{ID: created.ID, Inputs: updated, State: read.State})
+	updateLease.releaseIfNeeded(t)
 	requireWorkloadLifecycleNoError(t, "mount", err)
 	postUpdate, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: changed.Output})
 	requireWorkloadLifecycleNoError(t, "mount", err)
@@ -977,6 +1004,7 @@ func mountTargetID(args MountArgs, serviceType string) string {
 
 type liveDispatchFixture struct {
 	id      string
+	api     *client.Client
 	lease   *liveHeavyOperationLease
 	remove  func(context.Context) error
 	readID  func(context.Context) (string, error)
@@ -993,6 +1021,9 @@ func (fixture *liveDispatchFixture) cleanup(t *testing.T) {
 		fixture.cleaned = true
 		return
 	}
+	if fixture.lease.released {
+		fixture.lease = beginLiveHeavyOperation(t, "mount-dispatch-cleanup", liveServerHealthProbe(fixture.api))
+	}
 	if finishDatabaseCleanup(t, fixture.lease, "mount-dispatch", fixture.id, fixture.remove, fixture.readID) {
 		fixture.cleaned = true
 	}
@@ -1001,6 +1032,7 @@ func (fixture *liveDispatchFixture) cleanup(t *testing.T) {
 func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Client, environmentID, kind string) *liveDispatchFixture {
 	t.Helper()
 	lease := beginLiveHeavyOperation(t, "mount-dispatch-"+kind, liveServerHealthProbe(api))
+	defer lease.releaseIfNeeded(t)
 	switch kind {
 	case "postgres":
 		t.Cleanup(registerLiveSecrets("live-test-password"))
@@ -1009,7 +1041,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			_, e := (Postgres{client: fixedClient(api)}).Delete(c, infer.DeleteRequest[PostgresState]{ID: created.ID})
 			return e
 		}
-		fixture := &liveDispatchFixture{id: created.ID, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
+		fixture := &liveDispatchFixture{id: created.ID, api: api, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
 			v, e := (Postgres{client: fixedClient(api)}).Read(c, infer.ReadRequest[PostgresArgs, PostgresState]{ID: created.ID})
 			return v.ID, e
 		}}
@@ -1023,7 +1055,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			_, e := (MySQL{client: fixedClient(api)}).Delete(c, infer.DeleteRequest[MySQLState]{ID: created.ID})
 			return e
 		}
-		fixture := &liveDispatchFixture{id: created.ID, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
+		fixture := &liveDispatchFixture{id: created.ID, api: api, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
 			v, e := (MySQL{client: fixedClient(api)}).Read(c, infer.ReadRequest[MySQLArgs, MySQLState]{ID: created.ID})
 			return v.ID, e
 		}}
@@ -1036,7 +1068,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			_, e := (MariaDB{client: fixedClient(api)}).Delete(c, infer.DeleteRequest[MariaDBState]{ID: created.ID})
 			return e
 		}
-		fixture := &liveDispatchFixture{id: created.ID, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
+		fixture := &liveDispatchFixture{id: created.ID, api: api, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
 			v, e := (MariaDB{client: fixedClient(api)}).Read(c, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: created.ID})
 			return v.ID, e
 		}}
@@ -1049,7 +1081,7 @@ func createDispatchDatabase(t *testing.T, ctx context.Context, api *client.Clien
 			_, e := (Redis{client: fixedClient(api)}).Delete(c, infer.DeleteRequest[RedisState]{ID: created.ID})
 			return e
 		}
-		fixture := &liveDispatchFixture{id: created.ID, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
+		fixture := &liveDispatchFixture{id: created.ID, api: api, lease: lease, remove: remove, readID: func(c context.Context) (string, error) {
 			v, e := (Redis{client: fixedClient(api)}).Read(c, infer.ReadRequest[RedisArgs, RedisState]{ID: created.ID})
 			return v.ID, e
 		}}

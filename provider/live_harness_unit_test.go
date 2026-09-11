@@ -242,7 +242,10 @@ func mustMountCreateError(t *testing.T, r Mount) error {
 	return err
 }
 
-func TestDeleteAndVerifyOnceMarksOwnershipBeforeVerification(t *testing.T) {
+func TestDeleteAndVerifyOnceRetainsOwnershipUntilVerification(t *testing.T) {
+	oldInterval := liveCleanupPollInterval
+	liveCleanupPollInterval = time.Millisecond
+	t.Cleanup(func() { liveCleanupPollInterval = oldInterval })
 	deleteCalls, readCalls := 0, 0
 	owned := true
 	err := deleteAndVerifyOnce(func() error {
@@ -250,13 +253,13 @@ func TestDeleteAndVerifyOnceMarksOwnershipBeforeVerification(t *testing.T) {
 		return nil
 	}, func() (string, error) {
 		readCalls++
-		require.False(t, owned)
+		require.True(t, owned)
 		return "still-present", errors.New("verification sentinel")
 	}, func() { owned = false })
 	require.Error(t, err)
 	require.Equal(t, 1, deleteCalls)
 	require.Equal(t, 1, readCalls)
-	require.False(t, owned)
+	require.True(t, owned)
 }
 
 func TestCleanupContextHasFiniteFiveMinuteDeadline(t *testing.T) {
@@ -758,11 +761,11 @@ func TestStopMarkerWriteFailureIsRecordedAsSafeFailure(t *testing.T) {
 	diagnostic := recordCleanupResult("project", "cleanup failed")
 
 	require.True(t, heavyLiveTierStopped())
-	require.Contains(t, diagnostic, "stop marker propagation failed")
-	require.Contains(t, diagnostic, "open stop marker")
+	require.Contains(t, diagnostic, "operation=cleanup")
+	require.Contains(t, diagnostic, "marker=write-failed")
 	liveResultStore.Lock()
 	defer liveResultStore.Unlock()
-	require.Contains(t, liveResultStore.results[0].diagnostic, "stop marker propagation failed")
+	require.Contains(t, liveResultStore.results[0].diagnostic, "marker=write-failed")
 }
 
 func TestHarnessStateSurvivesTestCleanup(t *testing.T) {

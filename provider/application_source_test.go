@@ -93,6 +93,10 @@ func assertApplicationSourceFields(t *testing.T, want, got ApplicationSource) {
 	require.Equal(t, want.Type, got.Type)
 	switch want.Type {
 	case SourceGit:
+		requireLiveEqual(t, "application.source.git", true, got.Git != nil)
+		if got.Git == nil {
+			return
+		}
 		requireLiveEqual(t, "application.source.git.url", want.Git.URL, got.Git.URL)
 		requireLiveEqual(t, "application.source.git.branch", want.Git.Branch, got.Git.Branch)
 		requireLiveEqual(t, "application.source.git.buildPath", want.Git.BuildPath, got.Git.BuildPath)
@@ -101,10 +105,18 @@ func assertApplicationSourceFields(t *testing.T, want, got ApplicationSource) {
 		requireLiveEqual(t, "application.source.git.enableSubmodules", want.Git.EnableSubmodules, got.Git.EnableSubmodules)
 		assertApplicationBuildFields(t, "application.source.git.build", want.Git.Build, got.Git.Build)
 	case SourceDocker:
+		requireLiveEqual(t, "application.source.docker", true, got.Docker != nil)
+		if got.Docker == nil {
+			return
+		}
 		requireLiveEqual(t, "application.source.docker.image", want.Docker.Image, got.Docker.Image)
 		requireLiveEqual(t, "application.source.docker.registryUrl", want.Docker.RegistryURL, got.Docker.RegistryURL)
 		requireLiveEqual(t, "application.source.docker.username", want.Docker.Username, got.Docker.Username)
 	case SourceGitLab:
+		requireLiveEqual(t, "application.source.gitlab", true, got.GitLab != nil)
+		if got.GitLab == nil {
+			return
+		}
 		requireLiveEqual(t, "application.source.gitlab.integrationId", want.GitLab.IntegrationID, got.GitLab.IntegrationID)
 		requireLiveEqual(t, "application.source.gitlab.projectId", want.GitLab.ProjectID, got.GitLab.ProjectID)
 		requireLiveEqual(t, "application.source.gitlab.owner", want.GitLab.Owner, got.GitLab.Owner)

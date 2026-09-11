@@ -222,3 +222,19 @@ func TestTask9OrganizationActiveShapeClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestTask9CleanupDiagnosticsAreStructuralAndSanitized(t *testing.T) {
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	diagnostic := recordLiveCleanupFailure("resource-id-sentinel", "resource-id-sentinel", &client.APIError{
+		StatusCode: 502,
+		Code:       "SERVICE_UNAVAILABLE",
+		Message:    "https://endpoint.invalid/sql/path raw response sentinel",
+	})
+	require.Contains(t, diagnostic, "operation=cleanup")
+	require.Contains(t, diagnostic, "status=5xx")
+	require.Contains(t, diagnostic, "code=SERVICE_UNAVAILABLE")
+	for _, sentinel := range []string{"resource-id-sentinel", "endpoint.invalid", "sql/path", "raw response sentinel"} {
+		require.NotContains(t, diagnostic, sentinel)
+	}
+}

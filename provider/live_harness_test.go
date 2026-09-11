@@ -343,14 +343,12 @@ func deleteAndVerifyOnce(remove func() error, read func() (string, error), markU
 	if err := remove(); err != nil && !client.IsNotFound(err) {
 		return err
 	}
-	markUnowned()
-	id, err := read()
-	if err != nil {
+	ctx, cancel := cleanupContext()
+	defer cancel()
+	if err := waitForDatabaseAbsence(ctx, func(context.Context) (string, error) { return read() }); err != nil {
 		return err
 	}
-	if id != "" {
-		return fmt.Errorf("resource remained after delete verification")
-	}
+	markUnowned()
 	return nil
 }
 
@@ -528,8 +526,7 @@ func reportLiveCleanup(t *testing.T, kind, id string, err error) {
 }
 
 func recordLiveCleanupFailure(kind, id string, err error) string {
-	diagnostic := fmt.Sprintf("cleanup %s %s: %v", kind, id, err)
-	return recordCleanupResult(kind, diagnostic)
+	return recordStructuralCleanup(kind, err)
 }
 
 // recordLiveResult stores only sanitized diagnostics. heavyFailure must be true
@@ -539,8 +536,22 @@ func recordLiveResult(kind string, diagnostic interface{}) {
 	recordResult(liveResult{kind: kind, diagnostic: sanitizeLiveDiagnostic(toDiagnostic(diagnostic))})
 }
 func recordCleanupResult(kind string, diagnostic interface{}) string {
+	var err error
+	if candidate, ok := diagnostic.(error); ok {
+		err = candidate
+	}
+	return recordStructuralCleanup(kind, err)
+}
+
+func recordStructuralCleanup(kind string, err error) string {
 	liveHeavyStop.Store(true)
-	return recordHeavyFailure(kind, diagnostic)
+	message := structuralLiveDiagnostic("cleanup", kind, err)
+	if markerErr := createLiveStopMarker(); markerErr != nil {
+		message += "; marker=write-failed"
+	}
+	sanitized := sanitizeLiveDiagnostic(message)
+	recordResult(liveResult{kind: kind, diagnostic: sanitized, heavyFailure: true})
+	return sanitized
 }
 func recordServerHealthFailure(kind string, diagnostic interface{}) string {
 	liveHeavyStop.Store(true)
@@ -634,13 +645,52 @@ func liveServerHealthProbe(api *client.Client) func(context.Context) error {
 // makes the first writer win across test processes without exposing diagnostics
 // or credentials to the next workflow step.
 func recordHeavyFailure(kind string, diagnostic interface{}) string {
-	message := toDiagnostic(diagnostic)
+	var err error
+	if candidate, ok := diagnostic.(error); ok {
+		err = candidate
+	}
+	message := structuralLiveDiagnostic("heavy", kind, err)
 	if err := createLiveStopMarker(); err != nil {
-		message += "; stop marker propagation failed: " + err.Error()
+		message += "; marker=write-failed"
 	}
 	sanitized := sanitizeLiveDiagnostic(message)
 	recordResult(liveResult{kind: kind, diagnostic: sanitized, heavyFailure: true})
 	return sanitized
+}
+
+func structuralLiveDiagnostic(operation, kind string, err error) string {
+	resource := "unknown"
+	switch kind {
+	case "application", "compose", "domain", "mount", "project", "environment", "destination", "ssh-key", "registry", "tag", "project-tag", "postgres", "mysql", "mariadb", "mongodb", "redis", "backup", "backup-postgres", "backup-mysql", "backup-mariadb", "backup-mongodb":
+		resource = kind
+	}
+	statusClass, code := "transport", "unknown"
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		switch {
+		case apiErr.StatusCode >= 200 && apiErr.StatusCode < 300:
+			statusClass = "2xx"
+		case apiErr.StatusCode >= 400 && apiErr.StatusCode < 500:
+			statusClass = "4xx"
+		case apiErr.StatusCode >= 500 && apiErr.StatusCode < 600:
+			statusClass = "5xx"
+		}
+		if isSafeWorkloadAPICode(apiErr.Code) || isSafeHealthCode(apiErr.Code) {
+			code = apiErr.Code
+		}
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		statusClass = "timeout"
+	}
+	return fmt.Sprintf("operation=%s;resource=%s;status=%s;code=%s", operation, resource, statusClass, code)
+}
+
+func isSafeHealthCode(code string) bool {
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "SERVICE_UNAVAILABLE", "SERVER_UNHEALTHY", "CAPACITY_EXHAUSTED":
+		return true
+	default:
+		return false
+	}
 }
 
 func createLiveStopMarker() error {

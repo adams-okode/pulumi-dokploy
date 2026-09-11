@@ -414,51 +414,72 @@ func deferLiveDelete(t *testing.T, kind, id string, remove func(context.Context)
 	t.Cleanup(func() { liveCleanupVerified(t, kind, id, remove, read) })
 }
 func deleteAndReadProject(t *testing.T, ctx context.Context, r Project, id string) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: id})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[ProjectState]{ID: id})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[ProjectArgs, ProjectState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadEnvironment(t *testing.T, ctx context.Context, r Environment, id string) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[EnvironmentState]{ID: id})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[EnvironmentState]{ID: id})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadDestination(t *testing.T, ctx context.Context, r Destination, id string) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[DestinationState]{ID: id})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[DestinationState]{ID: id})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[DestinationArgs, DestinationState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadSSHKey(t *testing.T, ctx context.Context, r SSHKey, id string, state SSHKeyState) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[SSHKeyState]{ID: id, State: state})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[SSHKeyState]{ID: id, State: state})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[SSHKeyArgs, SSHKeyState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[SSHKeyArgs, SSHKeyState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadRegistry(t *testing.T, ctx context.Context, r Registry, id string, state RegistryState) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[RegistryState]{ID: id, State: state})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[RegistryState]{ID: id, State: state})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[RegistryArgs, RegistryState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadTag(t *testing.T, ctx context.Context, r Tag, id string) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[TagState]{ID: id})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[TagState]{ID: id})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[TagArgs, TagState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }
 func deleteAndReadProjectTag(t *testing.T, ctx context.Context, r ProjectTag, id string, state ProjectTagState) {
-	_, err := r.Delete(ctx, infer.DeleteRequest[ProjectTagState]{ID: id, State: state})
+	err := verifyLiveCleanup(ctx, func(c context.Context) error {
+		_, err := r.Delete(c, infer.DeleteRequest[ProjectTagState]{ID: id, State: state})
+		return err
+	}, func(c context.Context) (string, error) {
+		read, err := r.Read(c, infer.ReadRequest[ProjectTagArgs, ProjectTagState]{ID: id})
+		return read.ID, err
+	})
 	requireNoError(t, err)
-	read, err := r.Read(ctx, infer.ReadRequest[ProjectTagArgs, ProjectTagState]{ID: id})
-	requireNoError(t, err)
-	require.Equal(t, "", read.ID)
 }

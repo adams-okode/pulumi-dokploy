@@ -62,3 +62,23 @@ opt-in, Dokploy credentials, or configured server. `golangci-lint` and `mise`
 are not installed. The first race invocation exposed a timing-sensitive
 scripted-server failure; the required command passed on rerun, but this
 transient behavior should be watched in CI.
+
+## Final-review fixes
+
+The follow-up review findings were addressed without changing provider runtime
+behavior: Tier 2 workload and Mount redeploy calls now acquire operation-scoped
+heavy leases; cleanup and health diagnostics are structural and allowlisted;
+control-plane explicit deletes poll bounded eventual absence before releasing
+cleanup ownership; and Application source assertions nil-check each variant
+before field assertions.
+
+Exact verification evidence from 2026-09-11:
+
+- `gofmt -w provider/live_harness_test.go provider/live_harness_unit_test.go provider/application_source_test.go provider/live_control_plane_test.go provider/live_workloads_test.go provider/task9_regressions_test.go` — passed.
+- `go test ./provider -run 'Test(ApplicationSource|ComposeSource|Mount|Domain|Destination|Registry|LiveGate|ClassifyLiveServerHealth|OwnedWorkflow|Task9|DeleteAndVerifyOnce|VerifiedCleanup|StopMarker)' -count=1` — passed (`ok`, 0.230s).
+- `go test -short -count=1 ./provider/... ./internal/... ./tests/...` — passed.
+- `go test -race ./provider/... ./internal/...` — passed (`ok provider`, 4.506s; internal packages passed).
+- `go test ./... -count=1` — passed (all packages).
+- `git diff --check` — passed.
+- `golangci-lint` — unavailable (`command -v golangci-lint` returned no path).
+- `mise exec -- golangci-lint run` — unavailable (`command -v mise` returned no path).
