@@ -32,3 +32,21 @@ Implemented and verified in the `live-acceptance-coverage-hardening` worktree.
 Live assertions require the pinned Pulumi Automation API to report the expected
 resource operation summaries and exported deployment resource shape; no live
 credentials or Pulumi CLI were available for execution in this environment.
+
+## Quality finding follow-up
+
+- Revision summaries now require the exact stable custom-resource counts (four
+  creates for revision one and three updates for revision two), reject extra
+  creates and unsupported operations, and allow only `same`/`noop` ambient
+  reports in addition. Replacement and deletion diagnostics remain explicit.
+- Preview and update adapter tests now cover deterministic conversion, allowed
+  no-op reports, and missing update summaries.
+- Cleanup orchestration now performs export validation after destroy, then runs
+  `RemoveStack` and `ListStacks` in independent contexts regardless of
+  post-destroy validation or earlier cleanup errors. Errors remain separately
+  observable.
+
+Follow-up verification:
+
+- `go test ./tests -run 'TestLifecycleSummary|TestLifecycleSmokeProgram|TestLifecycleSmokeCleanup' -count=1` — PASS
+- `go test ./tests -run TestAccLifecycleSmoke -count=1 -v` — PASS; skipped without live acceptance configuration

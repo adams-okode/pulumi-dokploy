@@ -50,38 +50,35 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 	// Register cleanup immediately, including for failures during configuration or
 	// the first preview. Cleanup is deliberately bounded and uses no state edits.
 	t.Cleanup(func() {
-		destroyErr, removeErr := cleanupLifecycleStack(2*time.Minute,
+		destroyErr, removeErr, listErr := cleanupLifecycleStack(2*time.Minute,
 			func(ctx context.Context) (auto.DestroyResult, error) {
-				result, err := stack.Destroy(ctx)
+				return stack.Destroy(ctx)
+			},
+			func(ctx context.Context, _ auto.DestroyResult) error {
+				deployment, err := stack.Export(ctx)
 				if err != nil {
-					return result, err
+					return err
 				}
-				deployment, exportErr := stack.Export(ctx)
-				if exportErr != nil {
-					return result, exportErr
-				}
-				if stateErr := validateDestroyedState(deployment); stateErr != nil {
-					return result, stateErr
-				}
-				return result, nil
+				return validateDestroyedState(deployment)
 			},
 			func(ctx context.Context) error {
 				return stack.Workspace().RemoveStack(ctx, stackName)
+			},
+			func(ctx context.Context) error {
+				stacks, err := stack.Workspace().ListStacks(ctx)
+				if err != nil {
+					return err
+				}
+				return validateStackRemoved(stacks, stackName)
 			})
 		if destroyErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("destroy lifecycle smoke stack: "+destroyErr.Error(), cfg))
 		}
 		if removeErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("remove lifecycle smoke workspace: "+removeErr.Error(), cfg))
-			return
 		}
-		listCtx, cancelList := context.WithTimeout(context.Background(), 2*time.Minute)
-		stacks, listErr := stack.Workspace().ListStacks(listCtx)
-		cancelList()
 		if listErr != nil {
 			t.Errorf("%s", sanitizeAcceptanceDiagnostic("list lifecycle smoke workspace: "+listErr.Error(), cfg))
-		} else if stackErr := validateStackRemoved(stacks, stackName); stackErr != nil {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic(stackErr.Error(), cfg))
 		}
 	})
 	if err := stack.SetConfig(ctx, "dokploy:endpoint", auto.ConfigValue{Value: cfg.Endpoint}); err != nil {
@@ -227,29 +224,66 @@ func sanitizeAcceptanceDiagnostic(diagnostic string, cfg liveConfig) string {
 	return diagnostic
 }
 
-func cleanupLifecycleStack(timeout time.Duration, destroy func(context.Context) (auto.DestroyResult, error), remove func(context.Context) error) (error, error) {
+func cleanupLifecycleStack(
+	timeout time.Duration,
+	destroy func(context.Context) (auto.DestroyResult, error),
+	validateExport func(context.Context, auto.DestroyResult) error,
+	remove func(context.Context) error,
+	list func(context.Context) error,
+) (error, error, error) {
 	destroyCtx, cancelDestroy := context.WithTimeout(context.Background(), timeout)
-	_, destroyErr := destroy(destroyCtx)
+	destroyResult, destroyErr := destroy(destroyCtx)
+	if destroyErr == nil {
+		destroyErr = validateExport(destroyCtx, destroyResult)
+	}
 	cancelDestroy()
 
 	removeCtx, cancelRemove := context.WithTimeout(context.Background(), timeout)
 	removeErr := remove(removeCtx)
 	cancelRemove()
-	return destroyErr, removeErr
+
+	listCtx, cancelList := context.WithTimeout(context.Background(), timeout)
+	listErr := list(listCtx)
+	cancelList()
+	return destroyErr, removeErr, listErr
 }
 
 func validateLifecycleChanges(phase string, changes map[string]int) error {
-	if phase == "revision one" && changes["create"] != 4 {
-		return fmt.Errorf("%s expected four creates, got %d", phase, changes["create"])
+	// The four custom resources declared by the lifecycle program have stable
+	// create/update counts under the pinned SDK. Provider/default resources are
+	// deliberately not counted: Pulumi may report them as same or noop.
+	expectedCustomChanges := map[string]int{}
+	switch phase {
+	case "revision one":
+		expectedCustomChanges["create"] = 4
+	case "revision two":
+		expectedCustomChanges["update"] = 3
+	default:
+		return fmt.Errorf("unsupported lifecycle phase %q", phase)
 	}
-	if phase == "revision two" && changes["update"] == 0 {
-		return fmt.Errorf("%s expected at least one update", phase)
+	for operation, count := range changes {
+		if count < 0 {
+			return fmt.Errorf("%s has negative %s count: %d", phase, operation, count)
+		}
+		switch operation {
+		case "same", "noop":
+			// Pulumi may report unchanged resources using either spelling.
+		case "create", "update":
+			if count != expectedCustomChanges[operation] {
+				return fmt.Errorf("%s expected %d %s operations, got %d", phase, expectedCustomChanges[operation], operation, count)
+			}
+		case "replace":
+			return fmt.Errorf("%s contains replacement operations: %d", phase, count)
+		case "delete":
+			return fmt.Errorf("%s contains deletion operations: %d", phase, count)
+		default:
+			return fmt.Errorf("%s contains unsupported %s operation: %d", phase, operation, count)
+		}
 	}
-	if changes["replace"] != 0 {
-		return fmt.Errorf("%s contains replacement operations: %d", phase, changes["replace"])
-	}
-	if changes["delete"] != 0 {
-		return fmt.Errorf("%s contains deletion operations: %d", phase, changes["delete"])
+	for operation, count := range expectedCustomChanges {
+		if changes[operation] != count {
+			return fmt.Errorf("%s expected %d %s operations, got %d", phase, count, operation, changes[operation])
+		}
 	}
 	return nil
 }
