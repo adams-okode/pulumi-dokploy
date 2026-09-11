@@ -82,3 +82,11 @@ Exact verification evidence from 2026-09-11:
 - `git diff --check` — passed.
 - `golangci-lint` — unavailable (`command -v golangci-lint` returned no path).
 - `mise exec -- golangci-lint run` — unavailable (`command -v mise` returned no path).
+
+Post-commit reruns after the final source-variant lease coverage change:
+
+- `go test ./provider -run 'Test(ApplicationSource|ComposeSource|Mount|Domain|Destination|Registry|LiveGate|ClassifyLiveServerHealth|OwnedWorkflow|Task9|DeleteAndVerifyOnce|VerifiedCleanup|StopMarker)' -count=1` — passed (`ok`, 0.240s).
+- `go test -short -count=1 ./provider/... ./internal/... ./tests/...` — passed.
+- `go test -race ./provider/... ./internal/...` — first rerun exposed the pre-existing timing-sensitive `TestBackupCreate_Cancellation` scripted-request failure; the exact command rerun passed (`ok provider`, 4.617s; internal packages passed).
+- `go test ./... -count=1` — passed (all packages).
+- `git diff --check` — passed.
