@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,6 +157,32 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 	}
 	if !strings.Contains(string(contributingBytes), "tests/README.md") {
 		t.Error("CONTRIBUTING.md does not link to the live acceptance guide")
+	}
+}
+
+func TestLiveDiagnosticSourceContract(t *testing.T) {
+	files := []string{"acceptance_program_test.go", "../provider/live_test.go", "../provider/live_control_plane_test.go", "../provider/live_workloads_test.go", "../provider/live_databases_test.go", "../provider/live_backups_test.go"}
+	checks := []*regexp.Regexp{
+		regexp.MustCompile(`err\.Error\(\)`),
+		regexp.MustCompile(`%#v`),
+		regexp.MustCompile(`require\.(?:Equal|Empty|NotEmpty)\(t, [^\n]*(?:created\.ID|imported\.State\.[A-Za-z]*ID|backupID|targetID|read\.ID)`),
+	}
+	for _, path := range files {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, pattern := range checks {
+			if pattern.Match(content) {
+				t.Errorf("live-sensitive diagnostic pattern %s remains in %s", pattern, path)
+			}
+		}
+	}
+}
+
+func TestAcceptanceFailureIsFieldOnly(t *testing.T) {
+	if got := acceptanceFailure("refresh outputs", "projectId"); got != "Pulumi acceptance refresh outputs failed for field projectId" {
+		t.Fatalf("acceptance failure = %q", got)
 	}
 }
 

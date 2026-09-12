@@ -190,6 +190,18 @@ func TestExplicitDeleteRetainsOwnershipWhenAbsenceVerificationFails(t *testing.T
 	require.Equal(t, 1, fallbackCalls)
 }
 
+func TestVerifiedProjectCleanupDisarmsFallbackOnlyAfterSuccess(t *testing.T) {
+	deletes := 0
+	owner := newLiveCleanupOwner(func() { deletes++ })
+	require.Error(t, releaseAfterVerifiedCleanup(owner, func() error { return errors.New("absence not verified") }))
+	owner.cleanupOnce()
+	require.Equal(t, 1, deletes)
+	owner = newLiveCleanupOwner(func() { deletes++ })
+	require.NoError(t, releaseAfterVerifiedCleanup(owner, func() error { return nil }))
+	owner.cleanupOnce()
+	require.Equal(t, 1, deletes)
+}
+
 func TestWorkloadLifecycleDiagnosticsExcludeUnstructuredFailureDetails(t *testing.T) {
 	err := &client.APIError{StatusCode: 500, Code: "INTERNAL_ERROR", Message: `update failed: sql=insert into mount values ('id-sentinel', '/host/path', 'secret-sentinel')`}
 	for _, operation := range []string{"domain", "mount"} {

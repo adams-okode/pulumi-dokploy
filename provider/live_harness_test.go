@@ -56,6 +56,14 @@ func newLiveCleanupOwner(cleanup func()) *liveCleanupOwner {
 	return &liveCleanupOwner{owned: true, cleanup: cleanup}
 }
 
+func releaseAfterVerifiedCleanup(owner *liveCleanupOwner, verify func() error) error {
+	err := verify()
+	if err == nil {
+		owner.release()
+	}
+	return err
+}
+
 func (o *liveCleanupOwner) release() {
 	o.mu.Lock()
 	o.owned = false
@@ -493,13 +501,17 @@ func liveCleanupVerified(t *testing.T, kind, id string, remove func(context.Cont
 }
 
 func registerLiveCleanup(t *testing.T, kind, id string, remove func(context.Context) error, read func(context.Context) (string, error)) func() {
+	return registerLiveCleanupOwner(t, kind, id, remove, read).release
+}
+
+func registerLiveCleanupOwner(t *testing.T, kind, id string, remove func(context.Context) error, read func(context.Context) (string, error)) *liveCleanupOwner {
 	t.Helper()
 	if id == "" {
-		return func() {}
+		return newLiveCleanupOwner(func() {})
 	}
 	owner := newLiveCleanupOwner(func() { liveCleanupVerified(t, kind, id, remove, read) })
 	t.Cleanup(owner.cleanupOnce)
-	return owner.release
+	return owner
 }
 
 func verifyLiveCleanup(ctx context.Context, remove func(context.Context) error, read func(context.Context) (string, error)) error {

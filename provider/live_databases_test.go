@@ -18,7 +18,7 @@ import (
 func TestLiveTier3Databases(t *testing.T) {
 	api := liveClient(t)
 	ctx := liveContext(t, 50*time.Minute)
-	_, environmentID := liveProject(t, ctx, api)
+	_, environmentID, _ := liveProject(t, ctx, api)
 
 	t.Run("Postgres", func(t *testing.T) { livePostgresLifecycle(t, ctx, api, environmentID) })
 	t.Run("MySQL", func(t *testing.T) { liveMySQLLifecycle(t, ctx, api, environmentID) })
@@ -85,6 +85,7 @@ func finishDatabaseCleanup(t *testing.T, lease *liveHeavyOperationLease, kind, i
 func livePostgresLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := Postgres{client: fixedClient(api)}
 	inputs := PostgresArgs{Name: liveRunName("postgres"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "postgres:18", Environment: stringPtr("LIVE=1")}
+	t.Cleanup(registerLiveSecrets(inputs.DatabasePassword, value(inputs.Environment)))
 	lease := beginLiveHeavyOperation(t, "postgres", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
@@ -129,7 +130,7 @@ func livePostgresLifecycle(t *testing.T, ctx context.Context, api *client.Client
 	require.Equal(t, value(updated.Description), value(postUpdate.Inputs.Description))
 	imported, err := r.Read(ctx, infer.ReadRequest[PostgresArgs, PostgresState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.PostgresID)
+	requireLiveEqual(t, "postgres.id", id, imported.State.PostgresID)
 	require.Equal(t, "LIVE=2", value(imported.Inputs.Environment))
 	require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
 	require.Equal(t, value(postUpdate.Inputs.Description), value(imported.Inputs.Description))
@@ -148,7 +149,7 @@ func livePostgresLifecycle(t *testing.T, ctx context.Context, api *client.Client
 	requireNoError(t, err)
 	gone, err := r.Read(ctx, infer.ReadRequest[PostgresArgs, PostgresState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "postgres.id after delete", "", gone.ID)
 	require.NoError(t, waitForDatabaseAbsence(ctx, func(c context.Context) (string, error) {
 		v, e := r.Read(c, infer.ReadRequest[PostgresArgs, PostgresState]{ID: id})
 		return v.ID, e
@@ -167,6 +168,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	r := MySQL{client: fixedClient(api)}
 	root := "live-test-root-password"
 	inputs := MySQLArgs{Name: liveRunName("mysql"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DatabaseRootPassword: &root, DockerImage: "mysql:8", Environment: stringPtr("LIVE=1")}
+	t.Cleanup(registerLiveSecrets(inputs.DatabasePassword, *inputs.DatabaseRootPassword, value(inputs.Environment)))
 	lease := beginLiveHeavyOperation(t, "mysql", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
@@ -209,7 +211,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	require.Equal(t, value(updated.Description), value(postUpdate.Inputs.Description))
 	imported, err := r.Read(ctx, infer.ReadRequest[MySQLArgs, MySQLState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.MySQLID)
+	requireLiveEqual(t, "mysql.id", id, imported.State.MySQLID)
 	require.Equal(t, "LIVE=2", value(imported.Inputs.Environment))
 	require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
 	require.Equal(t, value(postUpdate.Inputs.Description), value(imported.Inputs.Description))
@@ -229,7 +231,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	requireNoError(t, err)
 	gone, err := r.Read(ctx, infer.ReadRequest[MySQLArgs, MySQLState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "mysql.id after delete", "", gone.ID)
 	require.NoError(t, waitForDatabaseAbsence(ctx, func(c context.Context) (string, error) {
 		v, e := r.Read(c, infer.ReadRequest[MySQLArgs, MySQLState]{ID: id})
 		return v.ID, e
@@ -241,6 +243,7 @@ func liveMySQLLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := MariaDB{client: fixedClient(api)}
 	inputs := MariaDBArgs{Name: liveRunName("mariadb"), EnvironmentID: environmentID, DatabaseName: "app", DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mariadb:11", Environment: stringPtr("LIVE=1")}
+	t.Cleanup(registerLiveSecrets(inputs.DatabasePassword, value(inputs.Environment)))
 	lease := beginLiveHeavyOperation(t, "mariadb", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
@@ -285,7 +288,7 @@ func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 	require.Equal(t, value(updated.Description), value(postUpdate.Inputs.Description))
 	imported, err := r.Read(ctx, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.MariaDBID)
+	requireLiveEqual(t, "mariadb.id", id, imported.State.MariaDBID)
 	require.Equal(t, "LIVE=2", value(imported.Inputs.Environment))
 	require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
 	require.Equal(t, value(postUpdate.Inputs.Description), value(imported.Inputs.Description))
@@ -304,7 +307,7 @@ func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 	requireNoError(t, err)
 	gone, err := r.Read(ctx, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "mariadb.id after delete", "", gone.ID)
 	require.NoError(t, waitForDatabaseAbsence(ctx, func(c context.Context) (string, error) {
 		v, e := r.Read(c, infer.ReadRequest[MariaDBArgs, MariaDBState]{ID: id})
 		return v.ID, e
@@ -316,6 +319,7 @@ func liveMariaDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string, replicaSets bool) {
 	r := MongoDB{client: fixedClient(api)}
 	inputs := MongoDBArgs{Name: liveRunName("mongodb"), EnvironmentID: environmentID, DatabaseUser: "app", DatabasePassword: "live-test-password", DockerImage: "mongo:8", Environment: stringPtr("LIVE=1"), ReplicaSets: &replicaSets}
+	t.Cleanup(registerLiveSecrets(inputs.DatabasePassword, value(inputs.Environment)))
 	lease := beginLiveHeavyOperation(t, "mongodb", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
@@ -361,7 +365,7 @@ func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 	require.Equal(t, value(updated.Description), value(postUpdate.Inputs.Description))
 	imported, err := r.Read(ctx, infer.ReadRequest[MongoDBArgs, MongoDBState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.MongoDBID)
+	requireLiveEqual(t, "mongodb.id", id, imported.State.MongoDBID)
 	require.Equal(t, "app", imported.Inputs.DatabaseUser)
 	require.Equal(t, "LIVE=2", value(imported.Inputs.Environment))
 	require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
@@ -381,7 +385,7 @@ func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 	requireNoError(t, err)
 	gone, err := r.Read(ctx, infer.ReadRequest[MongoDBArgs, MongoDBState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "mongodb.id after delete", "", gone.ID)
 	require.NoError(t, waitForDatabaseAbsence(ctx, func(c context.Context) (string, error) {
 		v, e := r.Read(c, infer.ReadRequest[MongoDBArgs, MongoDBState]{ID: id})
 		return v.ID, e
@@ -393,6 +397,7 @@ func liveMongoDBLifecycle(t *testing.T, ctx context.Context, api *client.Client,
 func liveRedisLifecycle(t *testing.T, ctx context.Context, api *client.Client, environmentID string) {
 	r := Redis{client: fixedClient(api)}
 	inputs := RedisArgs{Name: liveRunName("redis"), EnvironmentID: environmentID, DatabasePassword: "live-test-password", DockerImage: "redis:8", Environment: stringPtr("LIVE=1")}
+	t.Cleanup(registerLiveSecrets(inputs.DatabasePassword, value(inputs.Environment)))
 	lease := beginLiveHeavyOperation(t, "redis", liveServerHealthProbe(api))
 	id := ""
 	defer func() {
@@ -434,7 +439,7 @@ func liveRedisLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	require.Equal(t, value(updated.Description), value(postUpdate.Inputs.Description))
 	imported, err := r.Read(ctx, infer.ReadRequest[RedisArgs, RedisState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.RedisID)
+	requireLiveEqual(t, "redis.id", id, imported.State.RedisID)
 	require.Equal(t, "LIVE=2", value(imported.Inputs.Environment))
 	require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
 	require.Equal(t, value(postUpdate.Inputs.Description), value(imported.Inputs.Description))
@@ -453,7 +458,7 @@ func liveRedisLifecycle(t *testing.T, ctx context.Context, api *client.Client, e
 	requireNoError(t, err)
 	gone, err := r.Read(ctx, infer.ReadRequest[RedisArgs, RedisState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "redis.id after delete", "", gone.ID)
 	require.NoError(t, waitForDatabaseAbsence(ctx, func(c context.Context) (string, error) {
 		v, e := r.Read(c, infer.ReadRequest[RedisArgs, RedisState]{ID: id})
 		return v.ID, e

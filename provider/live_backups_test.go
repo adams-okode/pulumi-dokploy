@@ -20,7 +20,7 @@ import (
 func TestLiveTier4Backups(t *testing.T) {
 	api := liveClient(t)
 	ctx := liveContext(t, 50*time.Minute)
-	_, environmentID := liveProject(t, ctx, api)
+	_, environmentID, _ := liveProject(t, ctx, api)
 	destinationID := liveBackupDestination(t, ctx, api)
 
 	t.Run("Backup/Postgres", func(t *testing.T) { liveBackupForPostgres(t, ctx, api, environmentID, destinationID) })
@@ -53,11 +53,11 @@ func liveBackupDestination(t *testing.T, ctx context.Context, api *client.Client
 	}
 	if err != nil {
 		if isExternalDestinationConnectivityValidation(err) {
-			t.Skip("Dokploy validates the backup destination network before lifecycle tests: " + sanitizeLiveDiagnostic(err.Error()))
+			t.Skip("Dokploy validates the backup destination network before lifecycle tests")
 		}
 		requireNoError(t, err)
 	}
-	require.NotEmpty(t, created.ID)
+	requireLivePresent(t, "backup.id", created.ID)
 	return created.ID
 }
 
@@ -272,7 +272,7 @@ func liveBackupCRUD(t *testing.T, ctx context.Context, r Backup, inputs BackupAr
 		})
 	}
 	requireNoError(t, err)
-	require.NotEmpty(t, backupID)
+	requireLivePresent(t, "backup.id", backupID)
 	read, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: backupID})
 	requireNoError(t, err)
 	require.False(t, read.Inputs.Enabled)
@@ -292,7 +292,7 @@ func liveBackupCRUD(t *testing.T, ctx context.Context, r Backup, inputs BackupAr
 	require.False(t, post.Inputs.Enabled)
 	imported, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: backupID})
 	requireNoError(t, err)
-	require.Equal(t, backupID, imported.State.BackupID)
+	requireLiveEqual(t, "backup.id", backupID, imported.State.BackupID)
 	require.NotNil(t, imported.Inputs.KeepLatestCount, "Backup ID-only import omitted keepLatestCount")
 	require.Equal(t, 3, *imported.Inputs.KeepLatestCount, "Backup ID-only import keepLatestCount changed unexpectedly")
 	require.False(t, imported.Inputs.Enabled)
@@ -319,7 +319,7 @@ func liveBackupCRUD(t *testing.T, ctx context.Context, r Backup, inputs BackupAr
 	cleanupID.clear()
 	gone, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: created.ID})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "backup.id after delete", "", gone.ID)
 }
 
 func liveVolumeBackupForApplication(t *testing.T, ctx context.Context, api *client.Client, environmentID, destinationID string) {
@@ -350,7 +350,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 			t.Cleanup(func() { cleanupLiveResource(t, "application", cleanupID, remove, readID) })
 		}
 		requireNoError(t, err)
-		require.NotEmpty(t, targetID, "Application prerequisite create must return an ID")
+		requireLivePresent(t, "application.id", targetID)
 		require.Equal(t, statusDone, created.Output.Status, "Application prerequisite must reach statusDone before VolumeBackup creation")
 	} else {
 		r := Compose{client: fixedClient(api)}
@@ -369,7 +369,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 			t.Cleanup(func() { cleanupLiveResource(t, "compose", cleanupID, remove, readID) })
 		}
 		requireNoError(t, err)
-		require.NotEmpty(t, targetID, "Compose prerequisite create must return an ID")
+		requireLivePresent(t, "compose.id", targetID)
 		require.Equal(t, statusDone, created.Output.Status, "Compose prerequisite must reach statusDone before VolumeBackup creation")
 	}
 	var appID, composeID, service string
@@ -421,7 +421,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 	require.False(t, post.Inputs.Enabled)
 	imported, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id})
 	requireNoError(t, err)
-	require.Equal(t, id, imported.State.VolumeBackupID)
+	requireLiveEqual(t, "volumeBackup.id", id, imported.State.VolumeBackupID)
 	require.NotNil(t, imported.Inputs.KeepLatestCount)
 	require.Equal(t, 3, *imported.Inputs.KeepLatestCount)
 	diff, err := r.Diff(ctx, infer.DiffRequest[VolumeBackupArgs, VolumeBackupState]{Inputs: post.Inputs, State: post.State})
@@ -444,7 +444,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 	cleanupID.clear()
 	gone, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id})
 	requireNoError(t, err)
-	require.Empty(t, gone.ID)
+	requireLiveEqual(t, "volumeBackup.id after delete", "", gone.ID)
 }
 
 func optionalID(value string) *string {

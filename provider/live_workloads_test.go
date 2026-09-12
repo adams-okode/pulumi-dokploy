@@ -21,7 +21,7 @@ import (
 func TestLiveTier2Workloads(t *testing.T) {
 	api := liveClient(t)
 	ctx := liveContext(t, 30*time.Minute)
-	projectID, environmentID := liveProject(t, ctx, api)
+	projectID, environmentID, _ := liveProject(t, ctx, api)
 	_ = projectID
 
 	var applicationID, composeID string
@@ -65,7 +65,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 		})
 		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
-		require.NotEmpty(t, created.ID)
+		requireLivePresent(t, "application.id", created.ID)
 		applicationID = created.ID
 		applicationStatus = created.Output.Status
 		require.Equal(t, statusDone, created.Output.Status)
@@ -88,9 +88,9 @@ func TestLiveTier2Workloads(t *testing.T) {
 		require.Equal(t, updatedDescription, value(postUpdate.Inputs.Description))
 		imported, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.ApplicationID)
+		requireLiveEqual(t, "application.id", created.ID, imported.State.ApplicationID)
 		require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
-		require.Equal(t, postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
+		requireLiveEqual(t, "application.environmentId", postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
 		require.Equal(t, SourceDocker, imported.Inputs.Source.Type)
 		require.NotNil(t, imported.Inputs.Source.Docker)
 		require.Equal(t, "nginx:1.27", imported.Inputs.Source.Docker.Image)
@@ -143,7 +143,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 		})
 		lease.releaseIfNeeded(t)
 		requireNoError(t, err)
-		require.NotEmpty(t, created.ID)
+		requireLivePresent(t, "compose.id", created.ID)
 		composeID = created.ID
 		composeStatus = created.Output.Status
 		require.Equal(t, statusDone, created.Output.Status)
@@ -164,9 +164,9 @@ func TestLiveTier2Workloads(t *testing.T) {
 		require.Equal(t, updated.Name, postUpdate.Inputs.Name)
 		imported, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.ComposeID)
+		requireLiveEqual(t, "compose.id", created.ID, imported.State.ComposeID)
 		require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
-		require.Equal(t, postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
+		requireLiveEqual(t, "compose.environmentId", postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
 		require.Equal(t, ComposeSourceRaw, imported.Inputs.Source.Type)
 		require.NotNil(t, imported.Inputs.Source.Raw)
 		require.Contains(t, imported.Inputs.Source.Raw.ComposeFile, "image: nginx:1.27")

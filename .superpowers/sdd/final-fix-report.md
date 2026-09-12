@@ -65,6 +65,42 @@ one scripted polling request when cancellation happened before the next poll.
 The race command otherwise completed the `tests` package; no race report was
 emitted.
 
+## Final hardening pass
+
+### RED
+
+- `TestLiveDiagnosticSourceContract` initially found raw Automation API error
+  concatenation, output-map formatting, and ID-bearing live assertions.
+- The project cleanup-owner regression test initially had no disarmable owner
+  boundary; coverage was added for retention on failure and disarm on verified
+  success.
+
+### GREEN
+
+- Automation API failures and output assertions now use field-only structural
+  diagnostics. Destroy-state and stack-removal validators omit live values.
+- Live ID presence/equality assertions use operand-free helpers.
+- Database passwords and related environment values are registered before live
+  creates.
+- `liveProject` now uses a disarmable owner and releases it only after verified
+  absence.
+- Added the static live-source diagnostic contract test.
+
+Verification:
+
+- `go test ./provider -count=1 -timeout 3m` — PASS
+- `go test ./tests -count=1 -timeout 3m` — PASS
+- `go test -race ./provider -skip 'BackupCreate' -count=1 -timeout 3m` — PASS
+- `go test -race ./tests -count=1 -timeout 3m` — PASS
+- `go test ./... -count=1 -timeout 3m` — PASS
+- `git diff --check` — PASS
+
+The complete provider race run remains timing-sensitive in existing
+`TestBackupCreate_Cancellation`/`TestBackupCreateCancellationErrorOmitsTargetID`
+polling tests; it failed due to an expected scripted request remaining and
+reported no race detector failure. The complete run excluding those existing
+backup cancellation tests passed.
+
 ## Final verification
 
 - `go test ./provider -run 'Test(ApplicationSource|ComposeSource|Mount|Domain|Destination|Registry|LiveGate|ClassifyLiveServerHealth|OwnedWorkflow)' -count=1` — PASS.

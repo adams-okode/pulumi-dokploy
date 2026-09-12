@@ -45,7 +45,7 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 		auto.EnvVars(map[string]string{"PULUMI_BACKEND_URL": "file://" + backend}),
 	)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic(err.Error(), cfg))
+		t.Fatal(acceptanceFailure("stack creation"))
 	}
 	// Register cleanup immediately, including for failures during configuration or
 	// the first preview. Cleanup is deliberately bounded and uses no state edits.
@@ -72,54 +72,54 @@ func runLifecycleSmoke(t *testing.T, ctx context.Context, cfg liveConfig) {
 				return validateStackRemoved(stacks, stackName)
 			})
 		if destroyErr != nil {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic("destroy lifecycle smoke stack: "+destroyErr.Error(), cfg))
+			t.Error(acceptanceFailure("destroy lifecycle smoke stack"))
 		}
 		if exportErr != nil {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic("export lifecycle smoke state: "+exportErr.Error(), cfg))
+			t.Error(acceptanceFailure("export lifecycle smoke state"))
 		}
 		if removeErr != nil {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic("remove lifecycle smoke workspace: "+removeErr.Error(), cfg))
+			t.Error(acceptanceFailure("remove lifecycle smoke workspace"))
 		}
 		if listErr != nil {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic("list lifecycle smoke workspace: "+listErr.Error(), cfg))
+			t.Error(acceptanceFailure("list lifecycle smoke workspace"))
 		}
 	})
 	if err := stack.SetConfig(ctx, "dokploy:endpoint", auto.ConfigValue{Value: cfg.Endpoint}); err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("configure endpoint: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("configure endpoint"))
 	}
 	if err := stack.SetConfig(ctx, "dokploy:apiKey", auto.ConfigValue{Value: cfg.APIKey, Secret: true}); err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("configure API key: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("configure API key"))
 	}
 	revisionOnePreview, err := stack.Preview(ctx)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision one with unresolved chained outputs: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("preview revision one"))
 	}
 	assertPreviewAggregate(t, revisionOnePreview, "revision one")
 	revisionOneUp, err := stack.Up(ctx)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision one: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("up revision one"))
 	}
 	assertUpdateAggregate(t, revisionOneUp, "revision one")
 	revisionOne := assertLifecycleOutputs(t, revisionOneUp.Outputs, lifecycleRevisionOneValues(), cfg, nil)
 	if _, err := stack.Refresh(ctx); err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision one: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("refresh revision one"))
 	}
 	assertRefreshedLifecycleOutputs(t, ctx, stack, lifecycleRevisionOneValues(), cfg, &revisionOne)
 
 	stack.Workspace().SetProgram(lifecycleRevisionTwo(cfg))
 	revisionTwoPreview, err := stack.Preview(ctx)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("preview revision two: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("preview revision two"))
 	}
 	assertPreviewAggregate(t, revisionTwoPreview, "revision two")
 	revisionTwoUp, err := stack.Up(ctx)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("up revision two: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("up revision two"))
 	}
 	assertUpdateAggregate(t, revisionTwoUp, "revision two")
 	assertLifecycleOutputs(t, revisionTwoUp.Outputs, lifecycleRevisionTwoValues(), cfg, &revisionOne)
 	if _, err := stack.Refresh(ctx); err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("refresh revision two: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("refresh revision two"))
 	}
 	assertRefreshedLifecycleOutputs(t, ctx, stack, lifecycleRevisionTwoValues(), cfg, &revisionOne)
 }
@@ -208,6 +208,13 @@ func acceptanceStackName(suffix string) string {
 
 func acceptanceProjectName(suffix string) string {
 	return acceptanceEntityName("project", suffix)
+}
+
+func acceptanceFailure(phase string, field ...string) string {
+	if len(field) == 0 || field[0] == "" {
+		return "Pulumi acceptance " + phase + " failed"
+	}
+	return "Pulumi acceptance " + phase + " failed for field " + field[0]
 }
 
 func sanitizeAcceptanceDiagnostic(diagnostic string, cfg liveConfig) string {
@@ -344,7 +351,7 @@ func validateDestroyedState(deployment apitype.UntypedDeployment) error {
 	}
 	for _, resource := range state.Resources {
 		if strings.HasPrefix(resource.Type, "dokploy:index:") {
-			return fmt.Errorf("destroy state still contains managed resource type %q", resource.Type)
+			return errors.New("destroy state still contains managed resources")
 		}
 	}
 	return nil
@@ -353,7 +360,7 @@ func validateDestroyedState(deployment apitype.UntypedDeployment) error {
 func validateStackRemoved(stacks []auto.StackSummary, stackName string) error {
 	for _, stack := range stacks {
 		if stack.Name == stackName {
-			return fmt.Errorf("removed stack %q is still listed", stackName)
+			return errors.New("removed stack is still listed")
 		}
 	}
 	return nil
@@ -370,25 +377,25 @@ func assertLifecycleOutputs(t *testing.T, outputs auto.OutputMap, expected lifec
 	for _, key := range []string{"projectId", "environmentId", "tagId", "associationProjectId", "associationTagId"} {
 		output, ok := outputs[key]
 		if !ok || output.Value == nil || output.Secret {
-			t.Fatalf("%s", sanitizeAcceptanceDiagnostic(fmt.Sprintf("stack output %s was not a non-secret value: %#v", key, output), cfg))
+			t.Fatal(acceptanceFailure("stack output", key))
 		}
 		value, ok := output.Value.(string)
 		if !ok || value == "" {
-			t.Fatalf("%s", sanitizeAcceptanceDiagnostic(fmt.Sprintf("stack output %s was not a non-empty string: %#v", key, output.Value), cfg))
+			t.Fatal(acceptanceFailure("stack output", key))
 		}
 		*idKeys[key] = value
 	}
 	if ids.associationProject != ids.project || ids.associationTag != ids.tag {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic(fmt.Sprintf("association outputs do not preserve dependency IDs: %#v", outputs), cfg))
+		t.Fatal(acceptanceFailure("stack output dependencies"))
 	}
 	if previous != nil && *previous != ids {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic(fmt.Sprintf("revision changed resource IDs: revision one=%#v revision two=%#v", *previous, ids), cfg))
+		t.Fatal(acceptanceFailure("stable resource identity"))
 	}
 	for key, want := range map[string]string{"projectDescription": expected.description, "environmentName": acceptanceEntityName(expected.environment, cfg.NameSuffix), "tagColor": expected.color} {
 		output, ok := outputs[key]
 		got, isString := output.Value.(string)
 		if !ok || !isString || got != want {
-			t.Errorf("%s", sanitizeAcceptanceDiagnostic(fmt.Sprintf("stack output %s = %#v, want %q", key, output.Value, want), cfg))
+			t.Error(acceptanceFailure("stack output", key))
 		}
 	}
 	return ids
@@ -398,7 +405,7 @@ func assertRefreshedLifecycleOutputs(t *testing.T, ctx context.Context, stack au
 	t.Helper()
 	outputs, err := stack.Outputs(ctx)
 	if err != nil {
-		t.Fatalf("%s", sanitizeAcceptanceDiagnostic("read outputs after refresh: "+err.Error(), cfg))
+		t.Fatal(acceptanceFailure("refresh outputs"))
 	}
 	return assertLifecycleOutputs(t, outputs, expected, cfg, previous)
 }

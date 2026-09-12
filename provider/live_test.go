@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -22,7 +23,18 @@ import (
 func requireNoError(t *testing.T, err error, msgAndArgs ...interface{}) {
 	t.Helper()
 	if err != nil {
-		t.Fatalf("%s", structuralLiveError("live resource", "operation", err))
+		resource, operation := "live resource", "operation"
+		if len(msgAndArgs) > 0 {
+			if value, ok := msgAndArgs[0].(string); ok && value != "" {
+				resource = value
+			}
+		}
+		if len(msgAndArgs) > 1 {
+			if value, ok := msgAndArgs[1].(string); ok && value != "" {
+				operation = value
+			}
+		}
+		t.Fatalf("%s", structuralLiveError(resource, operation, err))
 	}
 }
 
@@ -43,6 +55,13 @@ func requireLiveLifecycleNoError(t *testing.T, resource, operation string, err e
 	t.Helper()
 	if err != nil {
 		t.Fatalf("%s", liveLifecycleDiagnostic(resource, operation, "", err))
+	}
+}
+
+func requireLivePresent(t *testing.T, field string, value interface{}) {
+	t.Helper()
+	if value == nil || reflect.ValueOf(value).IsZero() {
+		t.Errorf("live field %s was not present", field)
 	}
 }
 
@@ -120,30 +139,40 @@ func TestLiveSSHKeyPairUsesDokployKeyFormats(t *testing.T) {
 }
 
 // liveProject creates a scratch project and verifies its eventual absence.
-func liveProject(t *testing.T, ctx context.Context, api *client.Client) (id, defaultEnvironmentID string) {
+func liveProject(t *testing.T, ctx context.Context, api *client.Client) (id, defaultEnvironmentID string, release func()) {
 	t.Helper()
 	r := Project{client: fixedClient(api)}
 	created, err := r.Create(ctx, infer.CreateRequest[ProjectArgs]{Inputs: ProjectArgs{Name: liveRunName("project")}})
+	release = func() {}
+	var owner *liveCleanupOwner
 	if created.ID != "" {
-		t.Cleanup(func() {
-			liveCleanupVerified(t, "project", created.ID, func(ctx context.Context) error {
-				_, err := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: created.ID})
-				return err
-			}, func(ctx context.Context) (string, error) {
-				read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
-				return read.ID, err
-			})
+		owner = registerLiveCleanupOwner(t, "project", created.ID, func(ctx context.Context) error {
+			_, err := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: created.ID})
+			return err
+		}, func(ctx context.Context) (string, error) {
+			read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
+			return read.ID, err
 		})
+		release = owner.release
 	}
 	if err != nil && created.ID != "" {
-		liveCleanupVerified(t, "project", created.ID, func(ctx context.Context) error {
-			_, cleanupErr := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: created.ID})
-			return cleanupErr
-		}, func(ctx context.Context) (string, error) {
-			read, readErr := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
-			return read.ID, readErr
+		cleanupCtx, cancel := cleanupContext()
+		cleanupErr := releaseAfterVerifiedCleanup(owner, func() error {
+			return verifyLiveCleanup(cleanupCtx, func(ctx context.Context) error {
+				_, cleanupErr := r.Delete(ctx, infer.DeleteRequest[ProjectState]{ID: created.ID})
+				return cleanupErr
+			}, func(ctx context.Context) (string, error) {
+				read, readErr := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
+				return read.ID, readErr
+			})
 		})
+		cancel()
+		if cleanupErr == nil {
+			release()
+		} else {
+			reportLiveCleanup(t, "project", created.ID, cleanupErr)
+		}
 	}
 	requireNoError(t, err)
-	return created.ID, created.Output.DefaultEnvironmentID
+	return created.ID, created.Output.DefaultEnvironmentID, release
 }

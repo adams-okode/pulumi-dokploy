@@ -105,23 +105,23 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 			})
 		}
 		requireNoError(t, err)
-		require.NotEmpty(t, created.ID)
+		requireLivePresent(t, "project.id", created.ID)
 
 		read, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, read.State.ProjectID)
+		requireLiveEqual(t, "project.id", created.ID, read.State.ProjectID)
 		updatedName := read.Inputs.Name + "-updated"
 		updatedDescription := "updated by live test"
 		updated, err := r.Update(ctx, infer.UpdateRequest[ProjectArgs, ProjectState]{ID: created.ID, Inputs: ProjectArgs{Name: updatedName, Description: &updatedDescription}, State: read.State})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, updated.Output.ProjectID)
+		requireLiveEqual(t, "project.id", created.ID, updated.Output.ProjectID)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, updatedName, postUpdate.Inputs.Name)
 		require.Equal(t, updatedDescription, value(postUpdate.Inputs.Description))
 		imported, err := r.Read(ctx, infer.ReadRequest[ProjectArgs, ProjectState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.ProjectID)
+		requireLiveEqual(t, "project.id", created.ID, imported.State.ProjectID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[ProjectArgs, ProjectState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
@@ -130,7 +130,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 
 	t.Run("Environment", func(t *testing.T) {
 		ctx := liveContext(t, 2*time.Minute)
-		projectID, _ := liveProject(t, ctx, api)
+		projectID, _, _ := liveProject(t, ctx, api)
 		r := Environment{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[EnvironmentArgs]{Inputs: EnvironmentArgs{ProjectID: projectID, Name: liveRunName("environment")}})
 		release := func() {}
@@ -153,13 +153,13 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 			recordLiveOutcome("Environment", classifyEnvironmentUpdateComparison(err, directErr))
 		}
 		requireNoError(t, err)
-		require.Equal(t, created.ID, updated.Output.EnvironmentID)
+		requireLiveEqual(t, "environment.id", created.ID, updated.Output.EnvironmentID)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: created.ID})
 		requireNoError(t, err)
 		require.Equal(t, updatedName, postUpdate.Inputs.Name)
 		imported, err := r.Read(ctx, infer.ReadRequest[EnvironmentArgs, EnvironmentState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.EnvironmentID)
+		requireLiveEqual(t, "environment.id", created.ID, imported.State.EnvironmentID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[EnvironmentArgs, EnvironmentState]{Inputs: EnvironmentArgs{ProjectID: postUpdate.Inputs.ProjectID + "-replacement", Name: postUpdate.Inputs.Name}, State: postUpdate.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["projectId"].Kind)
@@ -222,7 +222,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireLiveEqual(t, "destination.serverId", value(updatedInputs.ServerID), value(postUpdate.Inputs.ServerID))
 		imported, err := r.Read(ctx, infer.ReadRequest[DestinationArgs, DestinationState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.DestinationID)
+		requireLiveEqual(t, "destination.id", created.ID, imported.State.DestinationID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[DestinationArgs, DestinationState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
@@ -267,7 +267,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireLiveEqual(t, "sshKey.publicKey", publicKey, postUpdate.Inputs.PublicKey)
 		imported, err := r.Read(ctx, infer.ReadRequest[SSHKeyArgs, SSHKeyState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.SSHKeyID)
+		requireLiveEqual(t, "sshKey.id", created.ID, imported.State.SSHKeyID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[SSHKeyArgs, SSHKeyState]{Inputs: SSHKeyArgs{Name: postUpdate.Inputs.Name, PrivateKey: privateKey + "-replacement", PublicKey: publicKey}, State: postUpdate.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["privateKey"].Kind)
@@ -326,7 +326,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		})
 		imported, err := r.Read(ctx, infer.ReadRequest[RegistryArgs, RegistryState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.RegistryID)
+		requireLiveEqual(t, "registry.id", created.ID, imported.State.RegistryID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[RegistryArgs, RegistryState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
@@ -361,7 +361,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		require.Equal(t, value(postUpdate.Inputs.Color), "#654321")
 		imported, err := r.Read(ctx, infer.ReadRequest[TagArgs, TagState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, imported.State.TagID)
+		requireLiveEqual(t, "tag.id", created.ID, imported.State.TagID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[TagArgs, TagState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
 		require.False(t, diff.HasChanges)
@@ -370,7 +370,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 
 	t.Run("ProjectTag", func(t *testing.T) {
 		ctx := liveContext(t, 2*time.Minute)
-		projectID, _ := liveProject(t, ctx, api)
+		projectID, _, _ := liveProject(t, ctx, api)
 		tag := Tag{client: fixedClient(api)}
 		tagCreated, err := tag.Create(ctx, infer.CreateRequest[TagArgs]{Inputs: TagArgs{Name: liveRunName("tag"), Color: stringPtr("#123456")}})
 		tagRelease := func() {}
@@ -406,7 +406,7 @@ func TestLiveTier1ControlPlane(t *testing.T) {
 		requireNoError(t, err)
 		read, err := r.Read(ctx, infer.ReadRequest[ProjectTagArgs, ProjectTagState]{ID: created.ID})
 		requireNoError(t, err)
-		require.Equal(t, created.ID, read.ID)
+		requireLiveEqual(t, "projectTag.id", created.ID, read.ID)
 		diff, err := r.Diff(ctx, infer.DiffRequest[ProjectTagArgs, ProjectTagState]{Inputs: ProjectTagArgs{ProjectID: projectID + "-replacement", TagID: tagCreated.ID}, State: read.State})
 		requireNoError(t, err)
 		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["projectId"].Kind)
