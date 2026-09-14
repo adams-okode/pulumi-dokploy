@@ -29,35 +29,45 @@ be claimed.
 
 ## External pending
 
-- Successful `release-smoke` dispatch for `0.2.2` with all six jobs.
-- Upstream `community-packages/package-list.json` entry.
-- Maintainer-approved publisher display name and upstream
+- [ ] Successful `release-smoke` dispatch for `0.2.2` with all six jobs.
+- [ ] Upstream `community-packages/package-list.json` entry.
+- [ ] Maintainer-approved publisher display name and upstream
   `publisher-names.json` mapping to `dimeskigj`.
-- Registry `fact-sheet`, `/check`, `/preview`, six-language and logo preview
+- [ ] Registry `fact-sheet`, `/check`, `/preview`, six-language and logo preview
   inspection.
-- Pulumi Registry CODEOWNER approval, merge, deployment, and public page
+- [ ] Pulumi Registry CODEOWNER approval, merge, deployment, and public page
   verification.
 
 ## Verification evidence
 
 - `go test ./provider -run '^TestRegistryReadinessLedgerSeparatesEvidenceStates$' -count=1`
-  passed after the ledger rewrite; the required red run failed because the
-  historical ledger lacked the three evidence-state headings.
+  passed after the ledger rewrite and pending-state strengthening; the required
+  red runs failed first for the missing headings and then for missing unchecked
+  markers.
+- `go test ./provider -run '^TestBuildDotnetCreatesVersionFileForCleanCheckout$' -count=1`
+  passed after the clean-checkout build fix.
 - `go test ./provider -run 'Registry|SchemaPublishingMetadata|GeneratedPublishingMetadata' -count=1`,
-  `make test_provider`, `go test -race ./provider/... ./internal/...`,
-  `make check_openapi`, `make docs_check`, `mise exec golangci-lint@2.9.0 --
-  golangci-lint run`, `make govulncheck`, and `make license` passed.
+  `make test_provider`, `env -i PATH="$PATH" HOME="$HOME" go test -race
+  ./provider/... ./internal/...`, `PATH="/tmp/pinned-rsvg-bin:$PATH" make
+  check_codegen`, `make check_openapi`, `make docs_check`, `mise exec
+  golangci-lint@2.9.0 -- golangci-lint run`, `make govulncheck`, and `make
+  license` passed.
 - `make docs_check` reported three existing high-severity npm advisories and
   the existing missing `website/src/icons` warning; these remain out of scope.
-- `make test_race` exceeded the 120-second command limit. Its pinned equivalent
-  `go test -race ./provider/... ./internal/...` passed; no historical race flake
-  recurred in this run.
-- `make check_codegen` could not complete: the pinned Pulumi 3.259.0 generation
-  reached the repository's renderer assertion, but the installed
-  `rsvg-convert` was not version 2.58.0. Generated incidental changes were
-  restored and no codegen drift was claimed.
-- `make build_sdks` passed Go and Python stages but failed at the existing .NET
-  stage because `sdk/dotnet/version.txt` is missing; Java was not reached.
+- `make test_race` was also run with the inherited acceptance `.env` and reached
+  live Domain operations that returned `BAD_REQUEST`; it was not rerun against
+  external services. The clean-environment pinned race equivalent above passed
+  with all live tests skipped.
+- `mise run setup-svg-renderer` could not install the package because sudo
+  requires an interactive password. An exact Ubuntu Noble
+  `librsvg2-bin=2.58.0+dfsg-1build1` amd64 package (SHA256
+  `84e6dc1615a63d202ae67699f8fb0ead13c8f4fc2664353cbed2fb662a32a4b4`) and
+  matching `librsvg2-2`/`libxml2`/`libicu74` runtime libraries were extracted
+  without installation; its `rsvg-convert --version` reported exactly 2.58.0.
+  With that temporary pinned PATH, `make check_codegen` passed with no drift.
+- `make build_sdks` passed all Go, Python, .NET, and Java stages when run with
+  mise Temurin 11.0.32.1 and the exact Gradle 7.6 distribution. The .NET
+  version file is now created deterministically from `VERSION_GENERIC`.
 - `make lint` could not run because the unwrapped `golangci-lint` executable is
   unavailable; the pinned v2.9.0 equivalent above passed.
 - The publication runbook remains unchecked; no release-smoke workflow was

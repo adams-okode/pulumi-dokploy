@@ -88,6 +88,26 @@ func TestRegistryReadinessLedgerSeparatesEvidenceStates(t *testing.T) {
 	}
 	require.Contains(t, ledger, "not yet Registry-ready")
 	require.NotContains(t, ledger, "corrected release must be published")
+	pendingStart := strings.Index(ledger, "## External pending")
+	pendingEnd := strings.Index(ledger[pendingStart+len("## External pending"):], "\n## ")
+	require.NotEqual(t, -1, pendingStart)
+	require.NotEqual(t, -1, pendingEnd)
+	pending := ledger[pendingStart : pendingStart+len("## External pending")+pendingEnd]
+	for _, marker := range []string{
+		"Successful `release-smoke` dispatch", "community-packages/package-list.json",
+		"publisher-names.json", "fact-sheet", "/check", "/preview", "Registry CODEOWNER",
+	} {
+		require.Contains(t, pending, marker)
+	}
+	require.Equal(t, 5, strings.Count(pending, "- [ ]"))
+	require.NotContains(t, pending, "- [x]")
+}
+
+func TestBuildDotnetCreatesVersionFileForCleanCheckout(t *testing.T) {
+	makefile := readProjectFile(t, "../Makefile")
+	buildDotnet := makefile[strings.Index(makefile, "build_dotnet:"):]
+	buildDotnet = buildDotnet[:strings.Index(buildDotnet, "\nbuild_java:")]
+	require.Contains(t, buildDotnet, "printf '%s' '$(VERSION_GENERIC)' > sdk/dotnet/version.txt")
 }
 
 func TestRegistryOverviewLanguageChoosers(t *testing.T) {

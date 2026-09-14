@@ -53,6 +53,7 @@ build_nodejs:
 	rm sdk/nodejs/bin/package.json.bak
 
 build_dotnet:
+	printf '%s' '$(VERSION_GENERIC)' > sdk/dotnet/version.txt
 	cd sdk/dotnet && dotnet build --nologo -p:Version=$(VERSION_GENERIC)
 
 build_java:
