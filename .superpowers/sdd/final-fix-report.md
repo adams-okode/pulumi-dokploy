@@ -41,6 +41,10 @@ Implemented as one final-remediation wave without live calls or `.env` use.
 - `make docs_check` — PASS (Astro: 0 errors/warnings/hints; 44 docs tests and 2 built-site tests).
 - `git diff --check` — PASS.
 
+The first concurrent full race invocation overlapped the ordinary Go suite and
+flaked in the existing cancellation test with one scripted request remaining;
+the required sanitized race command was rerun alone and passed.
+
 ## Earlier concurrent main review evidence
 
 - Backup snapshots retain every non-empty `backupId`, mark malformed observations
@@ -59,3 +63,20 @@ Implemented as one final-remediation wave without live calls or `.env` use.
 - SDK builds retain existing .NET nullable and Python packaging warnings.
 - The first bare `make build_sdks` attempt could not find `gradle`; the required
   command passed with pinned mise-provided Java 11 and Gradle 8.14.3.
+
+## Final re-review remediation
+
+- `.mise.toml` now declares `java = "11"` and `gradle = "8.14.3"`; the setup
+  action enables mise installation, so normal repository setup supplies both.
+- `scripts/generate-logo-png.py` now parses the canonical SVG XML and cubic/line
+  geometry, rasterizes it with standard-library supersampling, and emits a
+  deterministic PNG. It has no Git, HEAD, or pre-existing-PNG dependency.
+- `go test ./provider -run 'Test(RepositorySetupDeclaresPortableJavaBuildTools|LogoRendererDerivesOutputFromSVG)' -count=1` — PASS.
+- `mise exec -- make build_sdks` — PASS (normal project setup, no command-line
+  tool injection).
+- `make check_codegen` — PASS after the generated PNG was updated and staged;
+  schema and SDK working-tree diff is clean.
+- `go test ./provider/... ./internal/... -count=1` — PASS.
+- `env -i HOME="$HOME" PATH="$PATH" GOPATH="$GOPATH" GOMODCACHE="$GOMODCACHE" go test -race ./provider/... ./internal/... -count=1` — PASS.
+- `make docs_check` — PASS (44 docs tests and 2 built-site tests).
+- `git diff --check` — PASS.

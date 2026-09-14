@@ -176,7 +176,9 @@ func TestRegistryOverviewLanguageChoosers(t *testing.T) {
 			end := strings.Index(body[start+len(open):], "{{% /choosable %}}")
 			require.NotEqual(t, -1, end)
 			tab := body[start : start+len(open)+end]
-			require.NotEmpty(t, strings.TrimSpace(tab[strings.Index(tab, "\n"):]), language+" tab must contain content")
+			newline := strings.Index(tab, "\n")
+			require.NotEqual(t, -1, newline, language+" tab must have a body")
+			require.NotEmpty(t, strings.TrimSpace(tab[newline:]), language+" tab must contain content")
 		}
 	}
 	installationMarkers := map[string]string{
@@ -342,9 +344,10 @@ func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
 	require.NotContains(t, mise, "RSVG_CONVERT_PACKAGE")
 	require.Contains(t, makefile, "python3 scripts/generate-logo-png.py website/public/logo.svg sdk/dotnet/logo.png")
 	script := readProjectFile(t, "../scripts/generate-logo-png.py")
-	require.Contains(t, script, "SVG_SHA256")
-	require.Contains(t, script, `"git"`)
-	require.Contains(t, script, `"show"`)
+	require.Contains(t, script, "ElementTree")
+	require.Contains(t, script, "VIEWBOX")
+	require.NotContains(t, script, ".git")
+	require.NotContains(t, script, "HEAD")
 	require.NotContains(t, setupTools, "setup-svg-renderer")
 	runs, ok := action["runs"].(map[string]any)
 	require.True(t, ok)
@@ -356,4 +359,43 @@ func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
 			require.NotEqual(t, "Setup SVG renderer", step["name"])
 		}
 	}
+}
+
+func TestRepositorySetupDeclaresPortableJavaBuildTools(t *testing.T) {
+	mise := readProjectFile(t, "../.mise.toml")
+	require.Regexp(t, regexp.MustCompile(`(?m)^java\s*=\s*"11"\s*$`), mise)
+	require.Regexp(t, regexp.MustCompile(`(?m)^gradle\s*=\s*"8\.14\.3"\s*$`), mise)
+	action := readProjectFile(t, "../.github/actions/setup-tools/action.yml")
+	require.Contains(t, action, "uses: jdx/mise-action@")
+	require.Contains(t, action, "install: true")
+	require.Contains(t, readProjectFile(t, "../Makefile"), "build_sdks: build_go build_python build_nodejs build_dotnet build_java")
+}
+
+func TestLogoRendererDerivesOutputFromSVG(t *testing.T) {
+	directory := t.TempDir()
+	svg := filepath.Join(directory, "logo.svg")
+	output := filepath.Join(directory, "logo.png")
+	canonical := readProjectFile(t, "../website/public/logo.svg")
+	require.NoError(t, os.WriteFile(svg, []byte(canonical), 0o644))
+	render := func() []byte {
+		command := exec.Command("python3", "scripts/generate-logo-png.py", svg, output)
+		command.Dir = ".."
+		result, err := command.CombinedOutput()
+		require.NoError(t, err, string(result))
+		content, err := os.ReadFile(output)
+		require.NoError(t, err)
+		return content
+	}
+	first := render()
+	require.Equal(t, first, render())
+	changed := strings.Replace(canonical, `fill="#126782"`, `fill="#c0392b"`, 1)
+	require.NoError(t, os.WriteFile(svg, []byte(changed), 0o644))
+	require.NotEqual(t, first, render(), "changing SVG color must change PNG output")
+	changed = strings.Replace(changed, "397.65", "396.65", 1)
+	require.NoError(t, os.WriteFile(svg, []byte(changed), 0o644))
+	second := render()
+	require.NotEqual(t, first, second, "changing SVG geometry must change PNG output")
+	script := readProjectFile(t, "../scripts/generate-logo-png.py")
+	require.NotContains(t, script, ".git")
+	require.NotContains(t, script, "HEAD")
 }
