@@ -2,6 +2,8 @@ package dokploy
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -17,19 +19,254 @@ func readProjectFile(t *testing.T, path string) string {
 	return string(content)
 }
 
-func TestRegistryDocumentation(t *testing.T) {
-	index := readProjectFile(t, "../docs/_index.md")
-	installation := readProjectFile(t, "../docs/installation-configuration.md")
+func projectSection(t *testing.T, document, heading string) string {
+	t.Helper()
+	start := strings.Index(document, heading)
+	require.NotEqual(t, -1, start, heading)
+	rest := document[start+len(heading):]
+	end := strings.Index(rest, "\n## ")
+	require.NotEqual(t, -1, end, heading)
+	return document[start : start+len(heading)+end]
+}
 
+var registryLanguages = []string{"typescript", "python", "go", "csharp", "java", "yaml"}
+
+func TestRegistryOverviewStructure(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
 	require.True(t, strings.HasPrefix(index, "---\n"))
-	for _, marker := range []string{"title: Dokploy", "Pulumi", "community-maintained", "## Installation", "## Configuration", "## Example"} {
+	parts := strings.SplitN(index, "---\n", 3)
+	require.Len(t, parts, 3)
+	frontMatter := map[string]string{}
+	require.NoError(t, yaml.Unmarshal([]byte(parts[1]), &frontMatter))
+	require.Equal(t, "package", frontMatter["layout"])
+	require.Equal(t, "Dokploy", frontMatter["title"])
+	require.Contains(t, frontMatter["meta_desc"], "Dokploy")
+	require.Contains(t, frontMatter["meta_desc"], "Pulumi")
+	require.NotRegexp(t, regexp.MustCompile(`(?m)^# `), parts[2])
+
+	headings := []string{"## Installation", "## Example Usage", "## Configuration"}
+	previous := -1
+	for _, heading := range headings {
+		position := strings.Index(index, heading)
+		require.Greater(t, position, previous, heading)
+		previous = position
+	}
+}
+
+func TestRegistryMaintainerContactsAndOwnership(t *testing.T) {
+	security := readProjectFile(t, "../SECURITY.md")
+	conduct := readProjectFile(t, "../CODE-OF-CONDUCT.md")
+	codeowners := readProjectFile(t, "../.github/CODEOWNERS")
+
+	for name, content := range map[string]string{"SECURITY.md": security, "CODE-OF-CONDUCT.md": conduct} {
+		require.Contains(t, content, "contact@dimeski.net", name)
+		require.NotContains(t, content, "code-of-conduct@pulumi.com", name)
+	}
+	require.Regexp(t, regexp.MustCompile(`(?is)do not report security vulnerabilities in public (?:issues|pull requests).*email.*privately`), security)
+	require.Regexp(t, regexp.MustCompile(`(?is)never include.*(?:api keys|private keys|passwords|credentials).*public (?:issues|pull requests|examples|logs|test fixtures)`), security)
+	require.Equal(t, "* @dimeskigj\n", codeowners)
+}
+
+func TestRegistryPublicationRunbook(t *testing.T) {
+	runbook := readProjectFile(t, "../docs/registry-publication-runbook.md")
+	for _, marker := range []string{
+		"workflow run release-smoke.yml -f version=0.2.2",
+		`"repoSlug": "dimeskigj/pulumi-dokploy"`,
+		`"schemaFile": "provider/cmd/pulumi-resource-dokploy/schema.json"`,
+		`"dimeskigj"`, "publisher-names.json", "maintainer-approved public display name",
+		"/check", "/preview", "fact-sheet", "six language tabs", "logo",
+		"Registry CODEOWNER", "public Registry page",
+	} {
+		require.Contains(t, runbook, marker)
+	}
+	require.GreaterOrEqual(t, strings.Count(runbook, "- [ ]"), 8)
+	require.NotRegexp(t, regexp.MustCompile(`(?im)^\s*- \[x\]`), runbook)
+	require.NotRegexp(t, regexp.MustCompile(`(?im)^\s*- \[X\]`), runbook)
+	for _, action := range []string{
+		"Dispatch the read-only release smoke workflow:",
+		"Record the run URL and require",
+		"Fork or check out `pulumi/registry`",
+		"Add a `publisher-names.json` entry",
+		"Run the current lint/check commands",
+		"Open the upstream pull request",
+		"Resolve every fact-sheet finding",
+		"Ask a Pulumi maintainer",
+		"Inspect the preview:",
+		"Obtain approval from a Pulumi Registry CODEOWNER.",
+		"Merge only through the upstream maintainer process.",
+		"After deployment, open the public Registry page",
+	} {
+		line := regexp.MustCompile(`(?m)^- \[ \] ` + regexp.QuoteMeta(action) + `.*$`).FindString(runbook)
+		require.NotEmpty(t, line, "external action must be its own unchecked item: %s", action)
+	}
+	require.NotContains(t, runbook, "Registry PR has been opened")
+}
+
+func TestRegistryReadinessLedgerSeparatesEvidenceStates(t *testing.T) {
+	ledger := readProjectFile(t, "../docs/provider-registry-readiness.md")
+	for _, heading := range []string{
+		"## Repository-complete", "## Publicly available", "## External pending",
+	} {
+		require.Contains(t, ledger, heading)
+	}
+	for _, marker := range []string{
+		"v0.2.2", "docs/_index.md", "logoUrl", "contact@dimeski.net",
+		".github/CODEOWNERS", "release-smoke", "community-packages/package-list.json",
+		"publisher-names.json", "fact-sheet", "preview", "Registry CODEOWNER",
+	} {
+		require.Contains(t, ledger, marker)
+	}
+	require.Contains(t, ledger, "not yet Registry-ready")
+	require.NotContains(t, ledger, "corrected release must be published")
+	pending := projectSection(t, ledger, "## External pending")
+	for _, marker := range []string{
+		"Successful `release-smoke` dispatch", "community-packages/package-list.json",
+		"publisher-names.json", "fact-sheet", "/check", "/preview", "Registry CODEOWNER",
+	} {
+		require.Contains(t, pending, marker)
+	}
+	require.Equal(t, 5, strings.Count(pending, "- [ ]"))
+	require.NotContains(t, pending, "- [x]")
+}
+
+func TestBuildDotnetCreatesVersionFileForCleanCheckout(t *testing.T) {
+	makefile := readProjectFile(t, "../Makefile")
+	start := strings.Index(makefile, "build_dotnet:")
+	require.NotEqual(t, -1, start, "Makefile must define build_dotnet")
+	buildDotnet := makefile[start:]
+	end := strings.Index(buildDotnet, "\nbuild_java:")
+	require.NotEqual(t, -1, end, "build_dotnet must precede build_java")
+	buildDotnet = buildDotnet[:end]
+	buildDotnet = strings.Replace(buildDotnet,
+		"cd sdk/dotnet && dotnet build --nologo -p:Version=$(VERSION_GENERIC)",
+		"test \"$$(cat sdk/dotnet/version.txt)\" = \"$(VERSION_GENERIC)\"", 1)
+	directory := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(directory, "sdk", "dotnet"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "Makefile"), []byte("VERSION_GENERIC ?= clean-checkout\n"+buildDotnet), 0o644))
+	command := exec.Command("make", "-f", "Makefile", "build_dotnet")
+	command.Dir = directory
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	version, err := os.ReadFile(filepath.Join(directory, "sdk", "dotnet", "version.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "clean-checkout", string(version))
+}
+
+func TestRegistryOverviewLanguageChoosers(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
+	require.Equal(t, 2, strings.Count(index, chooser))
+	require.NotContains(t, index, "hcl")
+	require.Equal(t, 2, strings.Count(index, "{{< /chooser >}}"))
+	for _, language := range registryLanguages {
+		open := "{{% choosable language " + language + " %}}"
+		require.Equal(t, 2, strings.Count(index, open), language)
+	}
+	require.Equal(t, [][]string{
+		{"typescript", "python", "go", "csharp", "java", "yaml"},
+		{"typescript", "python", "go", "csharp", "java", "yaml"},
+	}, chooserLanguages(index))
+	require.Equal(t, 12, strings.Count(index, "{{% /choosable %}}"))
+	for _, section := range []string{"## Installation", "## Example Usage"} {
+		body := projectSection(t, index, section)
+		for _, language := range registryLanguages {
+			open := "{{% choosable language " + language + " %}}"
+			start := strings.Index(body, open)
+			require.NotEqual(t, -1, start)
+			end := strings.Index(body[start+len(open):], "{{% /choosable %}}")
+			require.NotEqual(t, -1, end)
+			tab := body[start : start+len(open)+end]
+			newline := strings.Index(tab, "\n")
+			require.NotEqual(t, -1, newline, language+" tab must have a body")
+			require.NotEmpty(t, strings.TrimSpace(tab[newline:]), language+" tab must contain content")
+		}
+	}
+	installationMarkers := map[string]string{
+		"typescript": "npm install @dimeskigj/pulumi-dokploy",
+		"python":     "pip install pulumi-dokploy",
+		"go":         "go get github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"csharp":     "dotnet add package Dimeskigj.Pulumi.Dokploy",
+		"java":       "<groupId>net.dimeski.pulumi</groupId>",
+		"yaml":       "pulumi package add github.com/dimeskigj/pulumi-dokploy dokploy",
+	}
+	exampleMarkers := map[string]string{
+		"typescript": "new dokploy.Project",
+		"python":     "pulumi_dokploy.Project",
+		"go":         "dokploy.NewProject",
+		"csharp":     "new Project(\"example\"",
+		"java":       "new Project(\"example\"",
+		"yaml":       "type: dokploy:index:Project",
+	}
+	for language, marker := range installationMarkers {
+		require.Contains(t, chooserTab(t, projectSection(t, index, "## Installation"), language), marker)
+		require.Contains(t, chooserTab(t, projectSection(t, index, "## Example Usage"), language), exampleMarkers[language])
+	}
+}
+
+func chooserTab(t *testing.T, section, language string) string {
+	t.Helper()
+	open := "{{% choosable language " + language + " %}}"
+	start := strings.Index(section, open)
+	require.NotEqual(t, -1, start, language)
+	contentStart := start + len(open)
+	end := strings.Index(section[contentStart:], "{{% /choosable %}}")
+	require.NotEqual(t, -1, end, language)
+	return section[contentStart : contentStart+end]
+}
+
+func chooserLanguages(document string) [][]string {
+	const prefix = `{{< chooser language "`
+	var languages [][]string
+	for remaining := document; ; {
+		start := strings.Index(remaining, prefix)
+		if start < 0 {
+			return languages
+		}
+		remaining = remaining[start+len(prefix):]
+		end := strings.Index(remaining, `" >}}`)
+		if end < 0 {
+			return languages
+		}
+		languages = append(languages, strings.Split(remaining[:end], ","))
+		remaining = remaining[end+len(`" >}}`):]
+	}
+}
+
+func TestRegistryOverviewCoordinatesExamplesAndConfiguration(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	for _, marker := range []string{
+		"npm install @dimeskigj/pulumi-dokploy",
+		"pip install pulumi-dokploy",
+		"go get github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"dotnet add package Dimeskigj.Pulumi.Dokploy",
+		"<groupId>net.dimeski.pulumi</groupId>",
+		"implementation 'net.dimeski.pulumi:dokploy:",
+		"pulumi package add github.com/dimeskigj/pulumi-dokploy dokploy",
+		"new dokploy.Project", "pulumi_dokploy.Project", "dokploy.NewProject",
+		"new Project", "new Project(\"example\"", "type: dokploy:index:Project",
+		"pulumi config set dokploy:endpoint https://dokploy.example.invalid",
+		"pulumi config set --secret dokploy:apiKey your-api-key",
+		"`endpoint` (Required, Not secret)", "`apiKey` (Required, Secret)",
+		"DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY", "community-maintained",
+	} {
 		require.Contains(t, index, marker)
 	}
-	for _, marker := range []string{"@dimeskigj/pulumi-dokploy", "pulumi_dokploy", "Dimeskigj.Pulumi.Dokploy", "net.dimeski.pulumi:dokploy", "github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy", "dokploy:endpoint", "dokploy:apiKey", "DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY"} {
+	require.NotContains(t, index, "official Dokploy")
+	require.NotContains(t, index, "official Pulumi")
+}
+
+func TestRegistryDocumentationCoordinatesStayConsistent(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	installation := readProjectFile(t, "../docs/installation-configuration.md")
+	for _, marker := range []string{
+		"@dimeskigj/pulumi-dokploy", "pulumi-dokploy",
+		"Dimeskigj.Pulumi.Dokploy", "net.dimeski.pulumi:dokploy",
+		"github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"dokploy:endpoint", "dokploy:apiKey", "DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY",
+	} {
+		require.Contains(t, index, marker)
 		require.Contains(t, installation, marker)
 	}
-	require.NotContains(t, index+installation, "official Dokploy")
-	require.NotContains(t, index+installation, "official Pulumi")
 }
 
 func TestRegistryFrontMatterAndSupportLinks(t *testing.T) {
@@ -62,15 +299,14 @@ func TestRegistryInstallationDetails(t *testing.T) {
 	require.Contains(t, installation, "github://api.github.com/dimeskigj/pulumi-dokploy")
 }
 
-func TestRegistryExampleDoesNotExposeSecrets(t *testing.T) {
+func TestRegistryExamplesDoNotExposeSecrets(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
-	start := strings.Index(index, "```typescript")
-	end := strings.Index(index[start+len("```typescript"):], "```")
-	require.NotEqual(t, -1, start)
-	require.NotEqual(t, -1, end)
-	example := index[start : start+len("```typescript")+end]
-	require.NotContains(t, example, "apiKey")
-	require.NotContains(t, example, "DOKPLOY_API_KEY")
+	configuration := strings.Index(index, "Configure the Dokploy endpoint and API key")
+	require.NotEqual(t, -1, configuration)
+	examples := index[:configuration]
+	require.NotContains(t, examples, "apiKey")
+	require.NotContains(t, examples, "DOKPLOY_API_KEY")
+	require.NotContains(t, examples, "your-api-key")
 }
 
 func TestRegistryLicense(t *testing.T) {
@@ -80,4 +316,86 @@ func TestRegistryLicense(t *testing.T) {
 		require.Contains(t, license, section)
 	}
 	require.Contains(t, license, "APPENDIX: How to apply the Apache License to your work")
+}
+
+func TestRegistryLogoAssetAndAttribution(t *testing.T) {
+	logo := readProjectFile(t, "../website/public/logo.svg")
+	attribution := readProjectFile(t, "../website/public/logo-LICENSE.md")
+	require.Contains(t, logo, "<svg")
+	require.Contains(t, logo, "viewBox=")
+	lowerLogo := strings.ToLower(logo)
+	for _, forbidden := range []string{"<script", "javascript:", "http://", "https://", "data:image/", "<image", "<foreignobject"} {
+		require.NotContains(t, lowerLogo, forbidden)
+	}
+	for _, marker := range []string{"## Source", "## License", "## Modifications", "SPDX-License-Identifier:"} {
+		require.Contains(t, attribution, marker)
+	}
+	require.Regexp(t, regexp.MustCompile(`SPDX-License-Identifier: (MIT|Apache-2\.0|BSD-2-Clause|BSD-3-Clause|CC0-1\.0)`), attribution)
+}
+
+func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
+	makefile := readProjectFile(t, "../Makefile")
+	mise := readProjectFile(t, "../.mise.toml")
+	setupTools := readProjectFile(t, "../.github/actions/setup-tools/action.yml")
+	var action map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(setupTools), &action))
+	require.NotContains(t, makefile, "rsvg-convert")
+	require.NotContains(t, mise, "apt-get")
+	require.NotContains(t, mise, "RSVG_CONVERT_PACKAGE")
+	require.Contains(t, makefile, "python3 scripts/generate-logo-png.py website/public/logo.svg sdk/dotnet/logo.png")
+	script := readProjectFile(t, "../scripts/generate-logo-png.py")
+	require.Contains(t, script, "ElementTree")
+	require.Contains(t, script, "VIEWBOX")
+	require.NotContains(t, script, ".git")
+	require.NotContains(t, script, "HEAD")
+	require.NotContains(t, setupTools, "setup-svg-renderer")
+	runs, ok := action["runs"].(map[string]any)
+	require.True(t, ok)
+	steps, ok := runs["steps"].([]any)
+	require.True(t, ok)
+	for _, rawStep := range steps {
+		step, ok := rawStep.(map[string]any)
+		if ok {
+			require.NotEqual(t, "Setup SVG renderer", step["name"])
+		}
+	}
+}
+
+func TestRepositorySetupDeclaresPortableJavaBuildTools(t *testing.T) {
+	mise := readProjectFile(t, "../.mise.toml")
+	require.Regexp(t, regexp.MustCompile(`(?m)^java\s*=\s*"11"\s*$`), mise)
+	require.Regexp(t, regexp.MustCompile(`(?m)^gradle\s*=\s*"8\.14\.3"\s*$`), mise)
+	action := readProjectFile(t, "../.github/actions/setup-tools/action.yml")
+	require.Contains(t, action, "uses: jdx/mise-action@")
+	require.Contains(t, action, "install: true")
+	require.Contains(t, readProjectFile(t, "../Makefile"), "build_sdks: build_go build_python build_nodejs build_dotnet build_java")
+}
+
+func TestLogoRendererDerivesOutputFromSVG(t *testing.T) {
+	directory := t.TempDir()
+	svg := filepath.Join(directory, "logo.svg")
+	output := filepath.Join(directory, "logo.png")
+	canonical := readProjectFile(t, "../website/public/logo.svg")
+	require.NoError(t, os.WriteFile(svg, []byte(canonical), 0o644))
+	render := func() []byte {
+		command := exec.Command("python3", "scripts/generate-logo-png.py", svg, output)
+		command.Dir = ".."
+		result, err := command.CombinedOutput()
+		require.NoError(t, err, string(result))
+		content, err := os.ReadFile(output)
+		require.NoError(t, err)
+		return content
+	}
+	first := render()
+	require.Equal(t, first, render())
+	changed := strings.Replace(canonical, `fill="#126782"`, `fill="#c0392b"`, 1)
+	require.NoError(t, os.WriteFile(svg, []byte(changed), 0o644))
+	require.NotEqual(t, first, render(), "changing SVG color must change PNG output")
+	changed = strings.Replace(changed, "397.65", "396.65", 1)
+	require.NoError(t, os.WriteFile(svg, []byte(changed), 0o644))
+	second := render()
+	require.NotEqual(t, first, second, "changing SVG geometry must change PNG output")
+	script := readProjectFile(t, "../scripts/generate-logo-png.py")
+	require.NotContains(t, script, ".git")
+	require.NotContains(t, script, "HEAD")
 }

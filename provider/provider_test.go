@@ -34,7 +34,7 @@ func TestProviderSchema(t *testing.T) {
 		"category/infrastructure", "kind/native", "dokploy",
 		"deployment", "self-hosted", "paas",
 	}, spec.Keywords)
-	require.Empty(t, spec.LogoURL)
+	require.Equal(t, registryLogoURL, spec.LogoURL)
 }
 
 func TestProviderRegistersProjectAndEnvironmentResources(t *testing.T) {

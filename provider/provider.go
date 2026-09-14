@@ -21,6 +21,7 @@ func Provider() p.Provider {
 			DisplayName:       "Dokploy",
 			Description:       "Pulumi provider for managing Dokploy projects, environments, applications, Compose stacks, Postgres, MySQL, MariaDB, MongoDB, and Redis databases, domains, SSH keys, registries, tags, project-tag associations, mounts, backup destinations, database backups, and volume backups.",
 			PluginDownloadURL: "github://api.github.com/dimeskigj/pulumi-dokploy",
+			LogoURL:           "https://raw.githubusercontent.com/dimeskigj/pulumi-dokploy/main/website/public/logo.svg",
 			Keywords:          []string{"category/infrastructure", "kind/native", "dokploy", "deployment", "self-hosted", "paas"},
 			Namespace:         "dimeskigj",
 			Homepage:          "https://github.com/dimeskigj/pulumi-dokploy",

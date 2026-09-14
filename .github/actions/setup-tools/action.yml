@@ -19,6 +19,7 @@ runs:
         MISE_FETCH_REMOTE_VERSIONS_TIMEOUT: 30s
       with:
         version: 2026.3.7
+        install: true
         cache_save: ${{ inputs.cache }}
         github_token: ${{ inputs.github_token }}
 

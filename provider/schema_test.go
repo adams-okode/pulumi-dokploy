@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const registryLogoURL = "https://raw.githubusercontent.com/dimeskigj/pulumi-dokploy/main/website/public/logo.svg"
+
 func providerSchema(t *testing.T) schema.PackageSpec {
 	t.Helper()
 	spec, err := p.GetSchema(t.Context(), Name, Version, Provider())
@@ -97,7 +99,7 @@ func TestSchemaPublishingMetadata(t *testing.T) {
 		"category/infrastructure", "kind/native", "dokploy",
 		"deployment", "self-hosted", "paas",
 	}, spec.Keywords)
-	require.Empty(t, spec.LogoURL)
+	require.Equal(t, registryLogoURL, spec.LogoURL)
 }
 
 func TestGeneratedPublishingMetadata(t *testing.T) {
@@ -113,7 +115,7 @@ func TestGeneratedPublishingMetadata(t *testing.T) {
 		"category/infrastructure", "kind/native", "dokploy",
 		"deployment", "self-hosted", "paas",
 	}, schemaMetadata.Keywords)
-	require.Empty(t, schemaMetadata.LogoURL)
+	require.Equal(t, registryLogoURL, schemaMetadata.LogoURL)
 
 	for _, parts := range [][]string{
 		{"sdk", "go", "dokploy", "pulumi-plugin.json"},
