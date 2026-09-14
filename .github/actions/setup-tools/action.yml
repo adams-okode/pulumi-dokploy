@@ -20,7 +20,7 @@ runs:
       with:
         version: 2026.3.7
         cache_save: ${{ inputs.cache }}
-         github_token: ${{ inputs.github_token }}
+        github_token: ${{ inputs.github_token }}
 
     - name: Setup SVG renderer
       shell: bash

@@ -158,9 +158,23 @@ func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
 	makefile := readProjectFile(t, "../Makefile")
 	mise := readProjectFile(t, "../.mise.toml")
 	setupTools := readProjectFile(t, "../.github/actions/setup-tools/action.yml")
+	var action map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(setupTools), &action))
 	require.Contains(t, makefile, "rsvg-convert -w 175 -h 175 -o sdk/dotnet/logo.png website/public/logo.svg")
 	require.Contains(t, mise, `RSVG_CONVERT_PACKAGE = "librsvg2-bin=2.58.0+dfsg-1build1"`)
 	require.Contains(t, mise, `sudo apt-get install --yes ${RSVG_CONVERT_PACKAGE}`)
 	require.Contains(t, mise, `test \"$(rsvg-convert --version | awk 'NR==1 {print $3}')\" = \"2.58.0\"`)
 	require.Contains(t, setupTools, "run: mise run setup-svg-renderer")
+	runs, ok := action["runs"].(map[string]any)
+	require.True(t, ok)
+	steps, ok := runs["steps"].([]any)
+	require.True(t, ok)
+	for _, rawStep := range steps {
+		step, ok := rawStep.(map[string]any)
+		if ok && step["name"] == "Setup SVG renderer" {
+			require.Equal(t, "mise run setup-svg-renderer", step["run"])
+			return
+		}
+	}
+	require.Fail(t, "Setup SVG renderer step not found")
 }
