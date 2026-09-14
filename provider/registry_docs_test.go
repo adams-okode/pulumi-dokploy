@@ -17,19 +17,77 @@ func readProjectFile(t *testing.T, path string) string {
 	return string(content)
 }
 
-func TestRegistryDocumentation(t *testing.T) {
-	index := readProjectFile(t, "../docs/_index.md")
-	installation := readProjectFile(t, "../docs/installation-configuration.md")
+var registryLanguages = []string{"typescript", "python", "go", "csharp", "java", "yaml"}
 
+func TestRegistryOverviewStructure(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
 	require.True(t, strings.HasPrefix(index, "---\n"))
-	for _, marker := range []string{"title: Dokploy", "Pulumi", "community-maintained", "## Installation", "## Configuration", "## Example"} {
+	parts := strings.SplitN(index, "---\n", 3)
+	require.Len(t, parts, 3)
+	frontMatter := map[string]string{}
+	require.NoError(t, yaml.Unmarshal([]byte(parts[1]), &frontMatter))
+	require.Equal(t, "package", frontMatter["layout"])
+	require.Equal(t, "Dokploy", frontMatter["title"])
+	require.Contains(t, frontMatter["meta_desc"], "Dokploy")
+	require.Contains(t, frontMatter["meta_desc"], "Pulumi")
+	require.NotRegexp(t, regexp.MustCompile(`(?m)^# `), parts[2])
+
+	headings := []string{"## Installation", "## Example Usage", "## Configuration"}
+	previous := -1
+	for _, heading := range headings {
+		position := strings.Index(index, heading)
+		require.Greater(t, position, previous, heading)
+		previous = position
+	}
+}
+
+func TestRegistryOverviewLanguageChoosers(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
+	require.Equal(t, 2, strings.Count(index, chooser))
+	require.Equal(t, 2, strings.Count(index, "{{< /chooser >}}"))
+	for _, language := range registryLanguages {
+		open := "{{% choosable language " + language + " %}}"
+		require.Equal(t, 2, strings.Count(index, open), language)
+	}
+	require.Equal(t, 12, strings.Count(index, "{{% /choosable %}}"))
+}
+
+func TestRegistryOverviewCoordinatesExamplesAndConfiguration(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	for _, marker := range []string{
+		"npm install @dimeskigj/pulumi-dokploy",
+		"pip install pulumi-dokploy",
+		"go get github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"dotnet add package Dimeskigj.Pulumi.Dokploy",
+		"<groupId>net.dimeski.pulumi</groupId>",
+		"implementation 'net.dimeski.pulumi:dokploy:",
+		"pulumi package add github.com/dimeskigj/pulumi-dokploy dokploy",
+		"new dokploy.Project", "pulumi_dokploy.Project", "dokploy.NewProject",
+		"new Project", "new Project(\"example\"", "type: dokploy:index:Project",
+		"pulumi config set dokploy:endpoint https://dokploy.example.invalid",
+		"pulumi config set --secret dokploy:apiKey your-api-key",
+		"`endpoint` (Required, Not secret)", "`apiKey` (Required, Secret)",
+		"DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY", "community-maintained",
+	} {
 		require.Contains(t, index, marker)
 	}
-	for _, marker := range []string{"@dimeskigj/pulumi-dokploy", "pulumi_dokploy", "Dimeskigj.Pulumi.Dokploy", "net.dimeski.pulumi:dokploy", "github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy", "dokploy:endpoint", "dokploy:apiKey", "DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY"} {
+	require.NotContains(t, index, "official Dokploy")
+	require.NotContains(t, index, "official Pulumi")
+}
+
+func TestRegistryDocumentationCoordinatesStayConsistent(t *testing.T) {
+	index := readProjectFile(t, "../docs/_index.md")
+	installation := readProjectFile(t, "../docs/installation-configuration.md")
+	for _, marker := range []string{
+		"@dimeskigj/pulumi-dokploy", "pulumi-dokploy",
+		"Dimeskigj.Pulumi.Dokploy", "net.dimeski.pulumi:dokploy",
+		"github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"dokploy:endpoint", "dokploy:apiKey", "DOKPLOY_ENDPOINT", "DOKPLOY_API_KEY",
+	} {
+		require.Contains(t, index, marker)
 		require.Contains(t, installation, marker)
 	}
-	require.NotContains(t, index+installation, "official Dokploy")
-	require.NotContains(t, index+installation, "official Pulumi")
 }
 
 func TestRegistryFrontMatterAndSupportLinks(t *testing.T) {
@@ -62,15 +120,14 @@ func TestRegistryInstallationDetails(t *testing.T) {
 	require.Contains(t, installation, "github://api.github.com/dimeskigj/pulumi-dokploy")
 }
 
-func TestRegistryExampleDoesNotExposeSecrets(t *testing.T) {
+func TestRegistryExamplesDoNotExposeSecrets(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
-	start := strings.Index(index, "```typescript")
-	end := strings.Index(index[start+len("```typescript"):], "```")
-	require.NotEqual(t, -1, start)
-	require.NotEqual(t, -1, end)
-	example := index[start : start+len("```typescript")+end]
-	require.NotContains(t, example, "apiKey")
-	require.NotContains(t, example, "DOKPLOY_API_KEY")
+	configuration := strings.Index(index, "Configure the Dokploy endpoint and API key")
+	require.NotEqual(t, -1, configuration)
+	examples := index[:configuration]
+	require.NotContains(t, examples, "apiKey")
+	require.NotContains(t, examples, "DOKPLOY_API_KEY")
+	require.NotContains(t, examples, "your-api-key")
 }
 
 func TestRegistryLicense(t *testing.T) {

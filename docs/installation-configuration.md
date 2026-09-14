@@ -18,7 +18,7 @@ provider version you are using:
 
 ```bash
 npm install @dimeskigj/pulumi-dokploy
-pip install pulumi_dokploy
+pip install pulumi-dokploy
 go get github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy
 dotnet add package Dimeskigj.Pulumi.Dokploy
 pulumi package add github.com/dimeskigj/pulumi-dokploy dokploy
