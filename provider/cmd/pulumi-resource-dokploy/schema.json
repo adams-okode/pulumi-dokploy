@@ -14,6 +14,7 @@
   "homepage": "https://github.com/dimeskigj/pulumi-dokploy",
   "license": "Apache-2.0",
   "repository": "https://github.com/dimeskigj/pulumi-dokploy",
+  "logoUrl": "https://raw.githubusercontent.com/dimeskigj/pulumi-dokploy/main/website/public/logo.svg",
   "pluginDownloadURL": "github://api.github.com/dimeskigj/pulumi-dokploy",
   "publisher": "dimeskigj",
   "namespace": "dimeskigj",

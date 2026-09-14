@@ -138,3 +138,17 @@ func TestRegistryLicense(t *testing.T) {
 	}
 	require.Contains(t, license, "APPENDIX: How to apply the Apache License to your work")
 }
+
+func TestRegistryLogoAssetAndAttribution(t *testing.T) {
+	logo := readProjectFile(t, "../website/public/logo.svg")
+	attribution := readProjectFile(t, "../website/public/logo-LICENSE.md")
+	require.Contains(t, logo, "<svg")
+	require.Contains(t, logo, "viewBox=")
+	for _, forbidden := range []string{"<script", "javascript:", "http://", "https://", "data:image/", "<image", "<foreignObject"} {
+		require.NotContains(t, logo, forbidden)
+	}
+	for _, marker := range []string{"## Source", "## License", "## Modifications", "SPDX-License-Identifier:"} {
+		require.Contains(t, attribution, marker)
+	}
+	require.Regexp(t, regexp.MustCompile(`SPDX-License-Identifier: (MIT|Apache-2\.0|BSD-2-Clause|BSD-3-Clause|CC0-1\.0)`), attribution)
+}
