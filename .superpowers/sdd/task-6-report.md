@@ -133,3 +133,26 @@ The remediation changes and updated ledger are committed as
 `c5b7112 fix: complete registry readiness verification`. The pre-existing
 `.superpowers/sdd/task-1-report.md` modification remains intentionally
 untouched.
+
+## Review follow-up
+
+- Replaced unsafe readiness-section slicing with `projectSection`, which uses
+  `require.NotEqual` before every slice; missing headings now stop the test with
+  an assertion failure instead of permitting a negative-index panic.
+- `TestBuildDotnetCreatesVersionFileForCleanCheckout` now runs the extracted
+  repository Make recipe in a temporary directory, replacing only the final
+  dotnet invocation with a file-content assertion. It behaviorally proves the
+  version file is created before the build command.
+- `go test ./provider -run 'TestRegistryReadinessLedgerSeparatesEvidenceStates|TestBuildDotnetCreatesVersionFileForCleanCheckout' -count=1`: PASS.
+- `env -u DOKPLOY_ACCEPTANCE -u DOKPLOY_ENDPOINT -u DOKPLOY_API_KEY make test_race`:
+  PASS. This exact required Make target ran with the acceptance variables
+  removed and all live tests skipped. The earlier inherited-environment
+  `BAD_REQUEST` run was accidental opt-in evidence only, not the clean baseline,
+  and no live test was rerun for repair.
+- `gofmt -w provider/registry_docs_test.go provider/schema_test.go provider/provider.go`:
+  PASS.
+- `git diff --check`: PASS.
+
+The ledger now records the sanitized Make-target race result distinctly from
+the accidental inherited live opt-in failure. External Registry actions remain
+pending and unchecked.

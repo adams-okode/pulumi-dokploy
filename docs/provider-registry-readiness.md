@@ -47,17 +47,18 @@ be claimed.
 - `go test ./provider -run '^TestBuildDotnetCreatesVersionFileForCleanCheckout$' -count=1`
   passed after the clean-checkout build fix.
 - `go test ./provider -run 'Registry|SchemaPublishingMetadata|GeneratedPublishingMetadata' -count=1`,
-  `make test_provider`, `env -i PATH="$PATH" HOME="$HOME" go test -race
-  ./provider/... ./internal/...`, `PATH="/tmp/pinned-rsvg-bin:$PATH" make
+  `make test_provider`, `env -u DOKPLOY_ACCEPTANCE -u DOKPLOY_ENDPOINT -u
+  DOKPLOY_API_KEY make test_race`, `PATH="/tmp/pinned-rsvg-bin:$PATH" make
   check_codegen`, `make check_openapi`, `make docs_check`, `mise exec
   golangci-lint@2.9.0 -- golangci-lint run`, `make govulncheck`, and `make
   license` passed.
 - `make docs_check` reported three existing high-severity npm advisories and
   the existing missing `website/src/icons` warning; these remain out of scope.
-- `make test_race` was also run with the inherited acceptance `.env` and reached
-  live Domain operations that returned `BAD_REQUEST`; it was not rerun against
-  external services. The clean-environment pinned race equivalent above passed
-  with all live tests skipped.
+- An earlier `make test_race` inherited the local acceptance `.env` and reached
+  live Domain operations that returned `BAD_REQUEST`; that result is not a
+  required baseline and was not repaired. The required clean baseline
+  `env -u DOKPLOY_ACCEPTANCE -u DOKPLOY_ENDPOINT -u DOKPLOY_API_KEY make
+  test_race` passed with all live tests skipped.
 - `mise run setup-svg-renderer` could not install the package because sudo
   requires an interactive password. An exact Ubuntu Noble
   `librsvg2-bin=2.58.0+dfsg-1build1` amd64 package (SHA256

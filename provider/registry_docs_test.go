@@ -2,6 +2,8 @@ package dokploy
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,6 +17,16 @@ func readProjectFile(t *testing.T, path string) string {
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(content)
+}
+
+func projectSection(t *testing.T, document, heading string) string {
+	t.Helper()
+	start := strings.Index(document, heading)
+	require.NotEqual(t, -1, start, heading)
+	rest := document[start+len(heading):]
+	end := strings.Index(rest, "\n## ")
+	require.NotEqual(t, -1, end, heading)
+	return document[start : start+len(heading)+end]
 }
 
 var registryLanguages = []string{"typescript", "python", "go", "csharp", "java", "yaml"}
@@ -88,11 +100,7 @@ func TestRegistryReadinessLedgerSeparatesEvidenceStates(t *testing.T) {
 	}
 	require.Contains(t, ledger, "not yet Registry-ready")
 	require.NotContains(t, ledger, "corrected release must be published")
-	pendingStart := strings.Index(ledger, "## External pending")
-	pendingEnd := strings.Index(ledger[pendingStart+len("## External pending"):], "\n## ")
-	require.NotEqual(t, -1, pendingStart)
-	require.NotEqual(t, -1, pendingEnd)
-	pending := ledger[pendingStart : pendingStart+len("## External pending")+pendingEnd]
+	pending := projectSection(t, ledger, "## External pending")
 	for _, marker := range []string{
 		"Successful `release-smoke` dispatch", "community-packages/package-list.json",
 		"publisher-names.json", "fact-sheet", "/check", "/preview", "Registry CODEOWNER",
@@ -107,7 +115,19 @@ func TestBuildDotnetCreatesVersionFileForCleanCheckout(t *testing.T) {
 	makefile := readProjectFile(t, "../Makefile")
 	buildDotnet := makefile[strings.Index(makefile, "build_dotnet:"):]
 	buildDotnet = buildDotnet[:strings.Index(buildDotnet, "\nbuild_java:")]
-	require.Contains(t, buildDotnet, "printf '%s' '$(VERSION_GENERIC)' > sdk/dotnet/version.txt")
+	buildDotnet = strings.Replace(buildDotnet,
+		"cd sdk/dotnet && dotnet build --nologo -p:Version=$(VERSION_GENERIC)",
+		"test \"$$(cat sdk/dotnet/version.txt)\" = \"$(VERSION_GENERIC)\"", 1)
+	directory := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(directory, "sdk", "dotnet"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "Makefile"), []byte("VERSION_GENERIC ?= clean-checkout\n"+buildDotnet), 0o644))
+	command := exec.Command("make", "-f", "Makefile", "build_dotnet")
+	command.Dir = directory
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	version, err := os.ReadFile(filepath.Join(directory, "sdk", "dotnet", "version.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "clean-checkout", string(version))
 }
 
 func TestRegistryOverviewLanguageChoosers(t *testing.T) {
