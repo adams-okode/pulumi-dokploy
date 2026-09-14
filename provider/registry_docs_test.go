@@ -55,6 +55,23 @@ func TestRegistryMaintainerContactsAndOwnership(t *testing.T) {
 	require.Equal(t, "* @dimeskigj\n", codeowners)
 }
 
+func TestRegistryPublicationRunbook(t *testing.T) {
+	runbook := readProjectFile(t, "../docs/registry-publication-runbook.md")
+	for _, marker := range []string{
+		"workflow run release-smoke.yml -f version=0.2.2",
+		`"repoSlug": "dimeskigj/pulumi-dokploy"`,
+		`"schemaFile": "provider/cmd/pulumi-resource-dokploy/schema.json"`,
+		`"dimeskigj"`, "publisher-names.json", "maintainer-approved public display name",
+		"/check", "/preview", "fact-sheet", "six language tabs", "logo",
+		"Registry CODEOWNER", "public Registry page",
+	} {
+		require.Contains(t, runbook, marker)
+	}
+	require.GreaterOrEqual(t, strings.Count(runbook, "- [ ]"), 8)
+	require.NotContains(t, runbook, "- [x]")
+	require.NotContains(t, runbook, "Registry PR has been opened")
+}
+
 func TestRegistryOverviewLanguageChoosers(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
 	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
