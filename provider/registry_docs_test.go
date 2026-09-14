@@ -161,6 +161,7 @@ func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
 	var action map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(setupTools), &action))
 	require.Contains(t, makefile, "rsvg-convert -w 175 -h 175 -o sdk/dotnet/logo.png website/public/logo.svg")
+	require.Contains(t, makefile, `test "$$(rsvg-convert --version | awk 'NR==1 {print $$3}')" = "2.58.0"`)
 	require.Contains(t, mise, `RSVG_CONVERT_PACKAGE = "librsvg2-bin=2.58.0+dfsg-1build1"`)
 	require.Contains(t, mise, `sudo apt-get install --yes ${RSVG_CONVERT_PACKAGE}`)
 	require.Contains(t, mise, `test \"$(rsvg-convert --version | awk 'NR==1 {print $3}')\" = \"2.58.0\"`)
