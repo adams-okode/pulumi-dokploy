@@ -172,15 +172,26 @@ func handleLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id
 }
 
 func processLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func(), probes ...func(context.Context) error) error {
+	return processLiveHeavyOperationError(t, lease, createErr, func() {
+		cleanupLiveHeavyCreateFailure(t, lease, id, createErr, cleanup)
+	}, probes...)
+}
+
+// processLiveHeavyOperationError keeps the lease through partial cleanup and
+// any gated timeout probe. It is also used for updates/redeploys, where there
+// is no partial resource cleanup callback.
+func processLiveHeavyOperationError(t *testing.T, lease *liveHeavyOperationLease, operationErr error, cleanup func(), probes ...func(context.Context) error) error {
 	t.Helper()
-	if createErr == nil {
+	if operationErr == nil {
 		return nil
 	}
-	lease.holdForFollowUp = createErr != nil
-	cleanupLiveHeavyCreateFailure(t, lease, id, createErr, cleanup)
-	if createErr != nil && classifyLiveServerHealthFailure(createErr) {
+	lease.holdForFollowUp = true
+	if cleanup != nil {
+		cleanup()
+	}
+	if classifyLiveServerHealthFailure(operationErr) {
 		recordServerHealthFailure(lease.kind, errLiveServerHealthProbe)
-	} else if createErr != nil && errors.Is(createErr, context.DeadlineExceeded) {
+	} else if errors.Is(operationErr, context.DeadlineExceeded) {
 		for _, probe := range probes {
 			if probeErr := maybeVerifyLiveServerHealth(t.Context(), probe); probeErr != nil {
 				recordServerHealthFailure(lease.kind, probeErr)
@@ -190,7 +201,7 @@ func processLiveHeavyCreateError(t *testing.T, lease *liveHeavyOperationLease, i
 	}
 	lease.holdForFollowUp = false
 	lease.releaseIfNeeded(t)
-	return createErr
+	return operationErr
 }
 
 func cleanupLiveHeavyCreateFailure(t *testing.T, lease *liveHeavyOperationLease, id string, createErr error, cleanup func()) {

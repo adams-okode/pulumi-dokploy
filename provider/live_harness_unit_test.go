@@ -732,6 +732,73 @@ func TestSuccessfulCreateRetainsHeavyLeaseUntilNormalRelease(t *testing.T) {
 	require.True(t, next.release(t))
 }
 
+func TestHeavyOperationUpdateClassificationStopsOnlyConfirmedHealthFailures(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "1")
+	t.Setenv("DOKPLOY_ENDPOINT", "https://example.invalid")
+	t.Setenv("DOKPLOY_API_KEY", "test-key")
+	for _, test := range []struct {
+		name string
+		err  error
+		stop bool
+	}{
+		{"validation", &client.APIError{StatusCode: 400, Code: "VALIDATION_ERROR"}, false},
+		{"not-found", &client.APIError{StatusCode: 404, Code: "NOT_FOUND"}, false},
+		{"unavailable", &client.APIError{StatusCode: 503, Code: "SERVICE_UNAVAILABLE"}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetLiveHarnessState()
+			lease := beginLiveHeavyOperation(t, "update")
+			err := processLiveHeavyOperationError(t, lease, test.err, nil)
+			require.Error(t, err)
+			require.Equal(t, test.stop, heavyLiveTierStopped())
+		})
+	}
+}
+
+func TestHeavyOperationUpdateTimeoutProbesBeforeRelease(t *testing.T) {
+	t.Setenv("DOKPLOY_ACCEPTANCE", "1")
+	t.Setenv("DOKPLOY_ENDPOINT", "https://example.invalid")
+	t.Setenv("DOKPLOY_API_KEY", "test-key")
+	resetLiveHarnessState()
+	t.Cleanup(resetLiveHarnessState)
+	lease := beginLiveHeavyOperation(t, "redeploy")
+	probed := false
+	err := processLiveHeavyOperationError(t, lease, context.DeadlineExceeded, nil, func(context.Context) error {
+		probed = true
+		_, overlapErr := acquireLiveHeavyOperation(t.Context(), "overlap", nil)
+		require.Error(t, overlapErr)
+		return nil
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.True(t, probed)
+	require.False(t, heavyLiveTierStopped())
+	next, nextErr := acquireLiveHeavyOperation(t.Context(), "next", nil)
+	require.NoError(t, nextErr)
+	require.True(t, next.release(t))
+}
+
+func TestHeavyOperationCreateClassificationStopsOnlyHealthFailure(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		stop bool
+	}{
+		{"validation", &client.APIError{StatusCode: 400, Code: "VALIDATION_ERROR"}, false},
+		{"decode", errors.New("decode failure"), false},
+		{"capacity", &client.APIError{StatusCode: 503, Code: "CAPACITY_EXHAUSTED"}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetLiveHarnessState()
+			lease := beginLiveHeavyOperation(t, "create")
+			cleanupCalled := false
+			err := processLiveHeavyCreateError(t, lease, "partial", test.err, func() { cleanupCalled = true })
+			require.Error(t, err)
+			require.True(t, cleanupCalled)
+			require.Equal(t, test.stop, heavyLiveTierStopped())
+		})
+	}
+}
+
 func TestCleanupFailureCreatesNonSecretStopMarker(t *testing.T) {
 	resetLiveHarnessState()
 	t.Cleanup(resetLiveHarnessState)

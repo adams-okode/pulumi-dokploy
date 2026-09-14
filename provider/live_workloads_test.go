@@ -56,15 +56,17 @@ func TestLiveTier2Workloads(t *testing.T) {
 		r := Application{client: fixedClient(api)}
 		lease := beginLiveHeavyOperation(t, "application-create", liveServerHealthProbe(api))
 		created, err := r.Create(ctx, infer.CreateRequest[ApplicationArgs]{Inputs: inputs})
-		cleanupAfterCreateError(t, "application", created.ID, err, func(c context.Context) error {
-			_, e := r.Delete(c, infer.DeleteRequest[ApplicationState]{ID: created.ID})
-			return e
-		}, func(c context.Context) (string, error) {
-			v, e := r.Read(c, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID})
-			return v.ID, e
-		})
+		processErr := processLiveHeavyOperationError(t, lease, err, func() {
+			cleanupAfterCreateError(t, "application", created.ID, err, func(c context.Context) error {
+				_, e := r.Delete(c, infer.DeleteRequest[ApplicationState]{ID: created.ID})
+				return e
+			}, func(c context.Context) (string, error) {
+				v, e := r.Read(c, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID})
+				return v.ID, e
+			})
+		}, liveServerHealthProbe(api))
+		requireNoError(t, processErr)
 		lease.releaseIfNeeded(t)
-		requireNoError(t, err)
 		requireLivePresent(t, "application.id", created.ID)
 		applicationID = created.ID
 		applicationStatus = created.Output.Status
@@ -80,8 +82,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 		updated.Description = &updatedDescription
 		lease = beginLiveHeavyOperation(t, "application-update", liveServerHealthProbe(api))
 		changed, err := r.Update(ctx, infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: created.ID, Inputs: updated, State: read.State})
+		requireNoError(t, processLiveHeavyOperationError(t, lease, err, nil, liveServerHealthProbe(api)))
 		lease.releaseIfNeeded(t)
-		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
 		requireLiveEqual(t, "application.name", updated.Name, postUpdate.Inputs.Name)
@@ -134,15 +136,17 @@ func TestLiveTier2Workloads(t *testing.T) {
 		r := Compose{client: fixedClient(api)}
 		lease := beginLiveHeavyOperation(t, "compose-create", liveServerHealthProbe(api))
 		created, err := r.Create(ctx, infer.CreateRequest[ComposeArgs]{Inputs: inputs})
-		cleanupAfterCreateError(t, "compose", created.ID, err, func(c context.Context) error {
-			_, e := r.Delete(c, infer.DeleteRequest[ComposeState]{ID: created.ID})
-			return e
-		}, func(c context.Context) (string, error) {
-			v, e := r.Read(c, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID})
-			return v.ID, e
-		})
+		processErr := processLiveHeavyOperationError(t, lease, err, func() {
+			cleanupAfterCreateError(t, "compose", created.ID, err, func(c context.Context) error {
+				_, e := r.Delete(c, infer.DeleteRequest[ComposeState]{ID: created.ID})
+				return e
+			}, func(c context.Context) (string, error) {
+				v, e := r.Read(c, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID})
+				return v.ID, e
+			})
+		}, liveServerHealthProbe(api))
+		requireNoError(t, processErr)
 		lease.releaseIfNeeded(t)
-		requireNoError(t, err)
 		requireLivePresent(t, "compose.id", created.ID)
 		composeID = created.ID
 		composeStatus = created.Output.Status
@@ -157,8 +161,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 		updated.Description = &updatedDescription
 		lease = beginLiveHeavyOperation(t, "compose-update", liveServerHealthProbe(api))
 		changed, err := r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: created.ID, Inputs: updated, State: read.State})
+		requireNoError(t, processLiveHeavyOperationError(t, lease, err, nil, liveServerHealthProbe(api)))
 		lease.releaseIfNeeded(t)
-		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
 		requireLiveEqual(t, "compose.name", updated.Name, postUpdate.Inputs.Name)
@@ -506,7 +510,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 				defer createLease.releaseIfNeeded(t)
 				body := generated.ApplicationCreateJSONRequestBody{Name: liveRunName("application-" + variant.name), EnvironmentId: environmentID}
 				response, err := api.ApplicationCreateWithResponse(ctx, body)
-				requireNoError(t, err)
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, err, nil, liveServerHealthProbe(api)))
 				require.NotNil(t, response.JSON200)
 				require.NotNil(t, response.JSON200.ApplicationId)
 				id := *response.JSON200.ApplicationId
@@ -518,8 +522,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 					gone, readErr := r.Read(c, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id})
 					return gone.ID, readErr
 				})
-				requireNoError(t, configureApplicationSource(ctx, api, id, variant.source))
-				requireNoError(t, configureApplicationBuild(ctx, api, id, variant.source))
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, configureApplicationSource(ctx, api, id, variant.source), nil, liveServerHealthProbe(api)))
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, configureApplicationBuild(ctx, api, id, variant.source), nil, liveServerHealthProbe(api)))
 				createLease.releaseIfNeeded(t)
 				read, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: ApplicationState{ApplicationArgs: ApplicationArgs{Source: variant.source}}})
 				requireNoError(t, err)
@@ -531,8 +535,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 				updated.Description = stringPtr("source variant metadata update")
 				updateLease := beginLiveHeavyOperation(t, "application-source-"+variant.name+"-update", liveServerHealthProbe(api))
 				_, err = r.Update(ctx, infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: id, Inputs: updated, State: read.State})
+				requireNoError(t, processLiveHeavyOperationError(t, updateLease, err, nil, liveServerHealthProbe(api)))
 				updateLease.releaseIfNeeded(t)
-				requireNoError(t, err)
 				postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: id, State: read.State})
 				requireNoError(t, err)
 				assertLiveApplicationSource(t, variant.name, variant.source, postUpdate.Inputs.Source)
@@ -555,7 +559,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 			createLease := beginLiveHeavyOperation(t, "compose-source-git-create", liveServerHealthProbe(api))
 			defer createLease.releaseIfNeeded(t)
 			response, err := api.ComposeCreateWithResponse(ctx, generated.ComposeCreateJSONRequestBody{Name: liveRunName("compose-git"), EnvironmentId: environmentID, ComposeType: ptr(generated.ComposeCreateJSONBodyComposeType(ComposeDocker))})
-			requireNoError(t, err)
+			requireNoError(t, processLiveHeavyOperationError(t, createLease, err, nil, liveServerHealthProbe(api)))
 			require.NotNil(t, response.JSON200)
 			require.NotNil(t, response.JSON200.ComposeId)
 			id := *response.JSON200.ComposeId
@@ -569,8 +573,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 			})
 			source := ComposeSource{Type: ComposeSourceGit, Git: &GitComposeSource{URL: "https://github.com/dimeskigj/pulumi-dokploy", Branch: "main", ComposePath: defaultComposePath}}
 			t.Cleanup(registerLiveComposeSourceMetadata(source))
-			requireNoError(t, configureComposeSource(ctx, api, id, source))
-			requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGit))
+			requireNoError(t, processLiveHeavyOperationError(t, createLease, configureComposeSource(ctx, api, id, source), nil, liveServerHealthProbe(api)))
+			requireNoError(t, processLiveHeavyOperationError(t, createLease, fetchComposeSource(ctx, api, id, ComposeSourceGit), nil, liveServerHealthProbe(api)))
 			createLease.releaseIfNeeded(t)
 			read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: source}}})
 			requireNoError(t, err)
@@ -579,8 +583,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 			updated.Description = stringPtr("compose source metadata update")
 			updateLease := beginLiveHeavyOperation(t, "compose-source-git-update", liveServerHealthProbe(api))
 			_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+			requireNoError(t, processLiveHeavyOperationError(t, updateLease, err, nil, liveServerHealthProbe(api)))
 			updateLease.releaseIfNeeded(t)
-			requireNoError(t, err)
 			postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
 			requireNoError(t, err)
 			assertComposeSourceFields(t, source, postUpdate.Inputs.Source)
@@ -603,7 +607,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 				createLease := beginLiveHeavyOperation(t, "compose-source-gitlab-create", liveServerHealthProbe(api))
 				defer createLease.releaseIfNeeded(t)
 				response, err := api.ComposeCreateWithResponse(ctx, generated.ComposeCreateJSONRequestBody{Name: liveRunName("compose-gitlab"), EnvironmentId: environmentID, ComposeType: ptr(generated.ComposeCreateJSONBodyComposeType(ComposeDocker))})
-				requireNoError(t, err)
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, err, nil, liveServerHealthProbe(api)))
 				require.NotNil(t, response.JSON200)
 				require.NotNil(t, response.JSON200.ComposeId)
 				id := *response.JSON200.ComposeId
@@ -616,8 +620,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 					return gone.ID, readErr
 				})
 				t.Cleanup(registerLiveComposeSourceMetadata(composeGitLabSource))
-				requireNoError(t, configureComposeSource(ctx, api, id, composeGitLabSource))
-				requireNoError(t, fetchComposeSource(ctx, api, id, ComposeSourceGitLab))
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, configureComposeSource(ctx, api, id, composeGitLabSource), nil, liveServerHealthProbe(api)))
+				requireNoError(t, processLiveHeavyOperationError(t, createLease, fetchComposeSource(ctx, api, id, ComposeSourceGitLab), nil, liveServerHealthProbe(api)))
 				createLease.releaseIfNeeded(t)
 				read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: ComposeState{ComposeArgs: ComposeArgs{Source: composeGitLabSource}}})
 				requireNoError(t, err)
@@ -626,8 +630,8 @@ func TestLiveTier2Workloads(t *testing.T) {
 				updated.Description = stringPtr("compose gitlab source metadata update")
 				updateLease := beginLiveHeavyOperation(t, "compose-source-gitlab-update", liveServerHealthProbe(api))
 				_, err = r.Update(ctx, infer.UpdateRequest[ComposeArgs, ComposeState]{ID: id, Inputs: updated, State: read.State})
+				requireNoError(t, processLiveHeavyOperationError(t, updateLease, err, nil, liveServerHealthProbe(api)))
 				updateLease.releaseIfNeeded(t)
-				requireNoError(t, err)
 				postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: id, State: read.State})
 				requireNoError(t, err)
 				assertComposeSourceFields(t, composeGitLabSource, postUpdate.Inputs.Source)
@@ -905,17 +909,29 @@ func runLiveMountLifecycle(t *testing.T, ctx context.Context, api *client.Client
 	}
 	createLease := beginLiveHeavyOperation(t, "mount-create", liveServerHealthProbe(api))
 	created, err := r.Create(ctx, infer.CreateRequest[MountArgs]{Inputs: inputs})
-	createLease.releaseIfNeeded(t)
 	// Ownership is registered before the create result is asserted so a partial
 	// create cannot outlive this subtest.
-	release := registerLiveCleanup(t, "mount", created.ID, func(c context.Context) error {
-		_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
-		return e
-	}, func(c context.Context) (string, error) {
-		v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
-		return v.ID, e
-	})
-	requireWorkloadCreateNoError(t, "mount", err, mountCreateRequestKeys(inputs), targetPresent, targetReady, "Mount")
+	processErr := processLiveHeavyOperationError(t, createLease, err, func() {
+		cleanupAfterCreateError(t, "mount", created.ID, err, func(c context.Context) error {
+			_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
+			return e
+		}, func(c context.Context) (string, error) {
+			v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+			return v.ID, e
+		})
+	}, liveServerHealthProbe(api))
+	release := func() {}
+	if processErr == nil {
+		release = registerLiveCleanup(t, "mount", created.ID, func(c context.Context) error {
+			_, e := r.Delete(c, infer.DeleteRequest[MountState]{ID: created.ID, State: created.Output})
+			return e
+		}, func(c context.Context) (string, error) {
+			v, e := r.Read(c, infer.ReadRequest[MountArgs, MountState]{ID: created.ID})
+			return v.ID, e
+		})
+	}
+	requireWorkloadCreateNoError(t, "mount", processErr, mountCreateRequestKeys(inputs), targetPresent, targetReady, "Mount")
+	createLease.releaseIfNeeded(t)
 
 	read, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: created.Output})
 	requireWorkloadLifecycleNoError(t, "mount", err)
@@ -923,8 +939,8 @@ func runLiveMountLifecycle(t *testing.T, ctx context.Context, api *client.Client
 	updated.MountPath += "-updated"
 	updateLease := beginLiveHeavyOperation(t, "mount-update", liveServerHealthProbe(api))
 	changed, err := r.Update(ctx, infer.UpdateRequest[MountArgs, MountState]{ID: created.ID, Inputs: updated, State: read.State})
+	requireWorkloadLifecycleNoError(t, "mount", processLiveHeavyOperationError(t, updateLease, err, nil, liveServerHealthProbe(api)))
 	updateLease.releaseIfNeeded(t)
-	requireWorkloadLifecycleNoError(t, "mount", err)
 	postUpdate, err := r.Read(ctx, infer.ReadRequest[MountArgs, MountState]{ID: created.ID, State: changed.Output})
 	requireWorkloadLifecycleNoError(t, "mount", err)
 	requireLiveEqual(t, "mount.mountPath", updated.MountPath, postUpdate.Inputs.MountPath)

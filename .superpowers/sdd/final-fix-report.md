@@ -149,3 +149,25 @@ cancellation polling test; no race detector report was emitted.
 `golangci-lint run` could not execute because `golangci-lint` is not installed
 in the environment. Live acceptance was not run because explicit credentials
 were unavailable. Existing unrelated working-tree changes were left untouched.
+
+## Tier 2 health-stop follow-up
+
+Application, Compose, and Mount Tier 2 create/update operations now route
+operation errors through the shared heavy-operation classifier. Recognized
+availability/capacity failures record the sanitized health stop; validation,
+decode, and not-found failures remain ordinary failures. Timeout follow-up
+probes are gated, run while the lease is held, follow partial cleanup, and
+release the lease exactly once. Successful operations retain the lease until
+their normal boundary.
+
+Verification:
+
+- Focused heavy-operation classification, timeout serialization, create/update,
+  and release tests — PASS.
+- `go test ./provider -count=1` — PASS.
+- `go test ./... -count=1` — PASS.
+- `go test -race ./provider ./internal/...` — PASS.
+- `git diff --check` — PASS.
+
+Live acceptance was not run because explicit Dokploy credentials were
+unavailable.
