@@ -41,6 +41,20 @@ func TestRegistryOverviewStructure(t *testing.T) {
 	}
 }
 
+func TestRegistryMaintainerContactsAndOwnership(t *testing.T) {
+	security := readProjectFile(t, "../SECURITY.md")
+	conduct := readProjectFile(t, "../CODE-OF-CONDUCT.md")
+	codeowners := readProjectFile(t, "../.github/CODEOWNERS")
+
+	for name, content := range map[string]string{"SECURITY.md": security, "CODE-OF-CONDUCT.md": conduct} {
+		require.Contains(t, content, "contact@dimeski.net", name)
+		require.NotContains(t, content, "code-of-conduct@pulumi.com", name)
+	}
+	require.Contains(t, security, "do not report security vulnerabilities in public issues")
+	require.Contains(t, security, "privately")
+	require.Equal(t, "* @dimeskigj\n", codeowners)
+}
+
 func TestRegistryOverviewLanguageChoosers(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
 	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
