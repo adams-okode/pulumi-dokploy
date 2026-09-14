@@ -144,11 +144,17 @@ func TestRegistryLogoAssetAndAttribution(t *testing.T) {
 	attribution := readProjectFile(t, "../website/public/logo-LICENSE.md")
 	require.Contains(t, logo, "<svg")
 	require.Contains(t, logo, "viewBox=")
-	for _, forbidden := range []string{"<script", "javascript:", "http://", "https://", "data:image/", "<image", "<foreignObject"} {
-		require.NotContains(t, logo, forbidden)
+	lowerLogo := strings.ToLower(logo)
+	for _, forbidden := range []string{"<script", "javascript:", "http://", "https://", "data:image/", "<image", "<foreignobject"} {
+		require.NotContains(t, lowerLogo, forbidden)
 	}
 	for _, marker := range []string{"## Source", "## License", "## Modifications", "SPDX-License-Identifier:"} {
 		require.Contains(t, attribution, marker)
 	}
 	require.Regexp(t, regexp.MustCompile(`SPDX-License-Identifier: (MIT|Apache-2\.0|BSD-2-Clause|BSD-3-Clause|CC0-1\.0)`), attribution)
+}
+
+func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
+	makefile := readProjectFile(t, "../Makefile")
+	require.Contains(t, makefile, "rsvg-convert -w 175 -h 175 -o sdk/dotnet/logo.png website/public/logo.svg")
 }
