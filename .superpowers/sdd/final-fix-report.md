@@ -1,6 +1,18 @@
 # Final broad-review fix report
 
-Implemented on `fix/live-acceptance-findings` without live calls or `.env` use.
+Implemented as one final-remediation wave without live calls or `.env` use.
+
+## Changes
+
+- Removed the floating-runner `sudo apt-get` SVG setup. Codegen now uses the
+  repository-owned, SHA-256-guarded deterministic logo materializer and keeps
+  the checked-in PNG byte-equivalent.
+- Strengthened chooser validation for exactly six ordered languages, no HCL,
+  and language-local installation/example content.
+- Structurally checked every runbook external action as its own unchecked item,
+  rejecting both lowercase and uppercase checked states.
+- Hardened public security-reporting and credential-disclosure governance
+  assertions, and guarded Makefile section extraction before slicing.
 
 ## Evidence
 
@@ -18,12 +30,15 @@ Implemented on `fix/live-acceptance-findings` without live calls or `.env` use.
 
 ## Verification
 
-- `go test ./provider -run 'TestSSHKeyCreate(Recovers|ReturnsOriginal|ReturnsAmbiguous)' -count=1` — PASS.
-- `go test ./provider -run 'TestWorkloadCallPathsEmitOnlyStructuralDiagnostics' -count=1` — PASS.
-- `go test ./provider -count=1` — PASS.
-- `go test ./... -count=1` — PASS.
-- `go test -race ./provider/... ./internal/... -count=1` — PASS.
-- `make docs_check` — PASS (Astro check: 0 errors/warnings/hints; 44 docs tests and 2 built-site tests passed).
+- `go test ./provider -run '^TestRegistry' -count=1` — PASS.
+- `go test ./provider -run 'Test(OwnedWorkflow|ReleaseSmokeWorkflow|Workflow|Registry)' -count=1` — PASS (workflow/action YAML contracts and registry checks).
+- `go test -short -count=1 ./provider/... ./internal/...` — PASS.
+- `go test ./provider/... ./internal/... -count=1` — PASS.
+- `env -i HOME="$HOME" PATH="$PATH" GOPATH="$GOPATH" GOMODCACHE="$GOMODCACHE" go test -race ./provider/... ./internal/... -count=1` — PASS.
+- `tmp=$(mktemp) && python3 scripts/generate-logo-png.py website/public/logo.svg "$tmp" && cmp -s "$tmp" sdk/dotnet/logo.png && rm -f "$tmp"` — PASS (byte-equivalent).
+- `make check_codegen` — PASS (generated schema/SDK diff clean).
+- `mise exec java@11 gradle@8.14.3 -- make build_sdks` — PASS (all SDK builds; Java toolchain supplied explicitly).
+- `make docs_check` — PASS (Astro: 0 errors/warnings/hints; 44 docs tests and 2 built-site tests).
 - `git diff --check` — PASS.
 
 ## Earlier concurrent main review evidence
@@ -36,3 +51,11 @@ Implemented on `fix/live-acceptance-findings` without live calls or `.env` use.
 - The focused backup regression suite, short provider/internal suite, provider/
   internal race suite, and whitespace check passed. Live Dokploy acceptance was
   not run for those backup fixes.
+
+## Concerns
+
+- `make docs_check` reports three existing high-severity npm audit findings and
+  a non-fatal astro-icon missing-directory warning during the static build.
+- SDK builds retain existing .NET nullable and Python packaging warnings.
+- The first bare `make build_sdks` attempt could not find `gradle`; the required
+  command passed with pinned mise-provided Java 11 and Gradle 8.14.3.

@@ -5,14 +5,3 @@ gotestsum = "1.13.0"
 node = "24.18.0"
 pulumi = "3.259.0"
 syft = "1.51.1"
-
-[env]
-RSVG_CONVERT_PACKAGE = "librsvg2-bin=2.58.0+dfsg-1build1"
-
-[tasks.setup-svg-renderer]
-description = "Install the pinned librsvg renderer used by codegen"
-run = [
-  "sudo apt-get update",
-  "sudo apt-get install --yes ${RSVG_CONVERT_PACKAGE}",
-  "test \"$(rsvg-convert --version | awk 'NR==1 {print $3}')\" = \"2.58.0\"",
-]

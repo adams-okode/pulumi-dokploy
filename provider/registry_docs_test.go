@@ -62,8 +62,8 @@ func TestRegistryMaintainerContactsAndOwnership(t *testing.T) {
 		require.Contains(t, content, "contact@dimeski.net", name)
 		require.NotContains(t, content, "code-of-conduct@pulumi.com", name)
 	}
-	require.Contains(t, security, "do not report security vulnerabilities in public issues")
-	require.Contains(t, security, "privately")
+	require.Regexp(t, regexp.MustCompile(`(?is)do not report security vulnerabilities in public (?:issues|pull requests).*email.*privately`), security)
+	require.Regexp(t, regexp.MustCompile(`(?is)never include.*(?:api keys|private keys|passwords|credentials).*public (?:issues|pull requests|examples|logs|test fixtures)`), security)
 	require.Equal(t, "* @dimeskigj\n", codeowners)
 }
 
@@ -80,7 +80,25 @@ func TestRegistryPublicationRunbook(t *testing.T) {
 		require.Contains(t, runbook, marker)
 	}
 	require.GreaterOrEqual(t, strings.Count(runbook, "- [ ]"), 8)
-	require.NotContains(t, runbook, "- [x]")
+	require.NotRegexp(t, regexp.MustCompile(`(?im)^\s*- \[x\]`), runbook)
+	require.NotRegexp(t, regexp.MustCompile(`(?im)^\s*- \[X\]`), runbook)
+	for _, action := range []string{
+		"Dispatch the read-only release smoke workflow:",
+		"Record the run URL and require",
+		"Fork or check out `pulumi/registry`",
+		"Add a `publisher-names.json` entry",
+		"Run the current lint/check commands",
+		"Open the upstream pull request",
+		"Resolve every fact-sheet finding",
+		"Ask a Pulumi maintainer",
+		"Inspect the preview:",
+		"Obtain approval from a Pulumi Registry CODEOWNER.",
+		"Merge only through the upstream maintainer process.",
+		"After deployment, open the public Registry page",
+	} {
+		line := regexp.MustCompile(`(?m)^- \[ \] ` + regexp.QuoteMeta(action) + `.*$`).FindString(runbook)
+		require.NotEmpty(t, line, "external action must be its own unchecked item: %s", action)
+	}
 	require.NotContains(t, runbook, "Registry PR has been opened")
 }
 
@@ -113,8 +131,12 @@ func TestRegistryReadinessLedgerSeparatesEvidenceStates(t *testing.T) {
 
 func TestBuildDotnetCreatesVersionFileForCleanCheckout(t *testing.T) {
 	makefile := readProjectFile(t, "../Makefile")
-	buildDotnet := makefile[strings.Index(makefile, "build_dotnet:"):]
-	buildDotnet = buildDotnet[:strings.Index(buildDotnet, "\nbuild_java:")]
+	start := strings.Index(makefile, "build_dotnet:")
+	require.NotEqual(t, -1, start, "Makefile must define build_dotnet")
+	buildDotnet := makefile[start:]
+	end := strings.Index(buildDotnet, "\nbuild_java:")
+	require.NotEqual(t, -1, end, "build_dotnet must precede build_java")
+	buildDotnet = buildDotnet[:end]
 	buildDotnet = strings.Replace(buildDotnet,
 		"cd sdk/dotnet && dotnet build --nologo -p:Version=$(VERSION_GENERIC)",
 		"test \"$$(cat sdk/dotnet/version.txt)\" = \"$(VERSION_GENERIC)\"", 1)
@@ -134,12 +156,78 @@ func TestRegistryOverviewLanguageChoosers(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
 	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
 	require.Equal(t, 2, strings.Count(index, chooser))
+	require.NotContains(t, index, "hcl")
 	require.Equal(t, 2, strings.Count(index, "{{< /chooser >}}"))
 	for _, language := range registryLanguages {
 		open := "{{% choosable language " + language + " %}}"
 		require.Equal(t, 2, strings.Count(index, open), language)
 	}
+	require.Equal(t, [][]string{
+		{"typescript", "python", "go", "csharp", "java", "yaml"},
+		{"typescript", "python", "go", "csharp", "java", "yaml"},
+	}, chooserLanguages(index))
 	require.Equal(t, 12, strings.Count(index, "{{% /choosable %}}"))
+	for _, section := range []string{"## Installation", "## Example Usage"} {
+		body := projectSection(t, index, section)
+		for _, language := range registryLanguages {
+			open := "{{% choosable language " + language + " %}}"
+			start := strings.Index(body, open)
+			require.NotEqual(t, -1, start)
+			end := strings.Index(body[start+len(open):], "{{% /choosable %}}")
+			require.NotEqual(t, -1, end)
+			tab := body[start : start+len(open)+end]
+			require.NotEmpty(t, strings.TrimSpace(tab[strings.Index(tab, "\n"):]), language+" tab must contain content")
+		}
+	}
+	installationMarkers := map[string]string{
+		"typescript": "npm install @dimeskigj/pulumi-dokploy",
+		"python":     "pip install pulumi-dokploy",
+		"go":         "go get github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy",
+		"csharp":     "dotnet add package Dimeskigj.Pulumi.Dokploy",
+		"java":       "<groupId>net.dimeski.pulumi</groupId>",
+		"yaml":       "pulumi package add github.com/dimeskigj/pulumi-dokploy dokploy",
+	}
+	exampleMarkers := map[string]string{
+		"typescript": "new dokploy.Project",
+		"python":     "pulumi_dokploy.Project",
+		"go":         "dokploy.NewProject",
+		"csharp":     "new Project(\"example\"",
+		"java":       "new Project(\"example\"",
+		"yaml":       "type: dokploy:index:Project",
+	}
+	for language, marker := range installationMarkers {
+		require.Contains(t, chooserTab(t, projectSection(t, index, "## Installation"), language), marker)
+		require.Contains(t, chooserTab(t, projectSection(t, index, "## Example Usage"), language), exampleMarkers[language])
+	}
+}
+
+func chooserTab(t *testing.T, section, language string) string {
+	t.Helper()
+	open := "{{% choosable language " + language + " %}}"
+	start := strings.Index(section, open)
+	require.NotEqual(t, -1, start, language)
+	contentStart := start + len(open)
+	end := strings.Index(section[contentStart:], "{{% /choosable %}}")
+	require.NotEqual(t, -1, end, language)
+	return section[contentStart : contentStart+end]
+}
+
+func chooserLanguages(document string) [][]string {
+	const prefix = `{{< chooser language "`
+	var languages [][]string
+	for remaining := document; ; {
+		start := strings.Index(remaining, prefix)
+		if start < 0 {
+			return languages
+		}
+		remaining = remaining[start+len(prefix):]
+		end := strings.Index(remaining, `" >}}`)
+		if end < 0 {
+			return languages
+		}
+		languages = append(languages, strings.Split(remaining[:end], ","))
+		remaining = remaining[end+len(`" >}}`):]
+	}
 }
 
 func TestRegistryOverviewCoordinatesExamplesAndConfiguration(t *testing.T) {
@@ -249,22 +337,23 @@ func TestCodegenUsesCheckedInLogoSource(t *testing.T) {
 	setupTools := readProjectFile(t, "../.github/actions/setup-tools/action.yml")
 	var action map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(setupTools), &action))
-	require.Contains(t, makefile, "rsvg-convert -w 175 -h 175 -o sdk/dotnet/logo.png website/public/logo.svg")
-	require.Contains(t, makefile, `test "$$(rsvg-convert --version | awk 'NR==1 {print $$3}')" = "2.58.0"`)
-	require.Contains(t, mise, `RSVG_CONVERT_PACKAGE = "librsvg2-bin=2.58.0+dfsg-1build1"`)
-	require.Contains(t, mise, `sudo apt-get install --yes ${RSVG_CONVERT_PACKAGE}`)
-	require.Contains(t, mise, `test \"$(rsvg-convert --version | awk 'NR==1 {print $3}')\" = \"2.58.0\"`)
-	require.Contains(t, setupTools, "run: mise run setup-svg-renderer")
+	require.NotContains(t, makefile, "rsvg-convert")
+	require.NotContains(t, mise, "apt-get")
+	require.NotContains(t, mise, "RSVG_CONVERT_PACKAGE")
+	require.Contains(t, makefile, "python3 scripts/generate-logo-png.py website/public/logo.svg sdk/dotnet/logo.png")
+	script := readProjectFile(t, "../scripts/generate-logo-png.py")
+	require.Contains(t, script, "SVG_SHA256")
+	require.Contains(t, script, `"git"`)
+	require.Contains(t, script, `"show"`)
+	require.NotContains(t, setupTools, "setup-svg-renderer")
 	runs, ok := action["runs"].(map[string]any)
 	require.True(t, ok)
 	steps, ok := runs["steps"].([]any)
 	require.True(t, ok)
 	for _, rawStep := range steps {
 		step, ok := rawStep.(map[string]any)
-		if ok && step["name"] == "Setup SVG renderer" {
-			require.Equal(t, "mise run setup-svg-renderer", step["run"])
-			return
+		if ok {
+			require.NotEqual(t, "Setup SVG renderer", step["name"])
 		}
 	}
-	require.Fail(t, "Setup SVG renderer step not found")
 }
