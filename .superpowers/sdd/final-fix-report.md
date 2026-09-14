@@ -101,6 +101,41 @@ polling tests; it failed due to an expected scripted request remaining and
 reported no race detector failure. The complete run excluding those existing
 backup cancellation tests passed.
 
+## Final assertion and source-contract pass
+
+### RED
+
+- The function-aware source contract initially found ordinary testify
+  assertions in live tier functions, including backup, workload, and database
+  paths.
+- Focused Docker-registry and GitLab request-shape tests were added for exact
+  endpoint/body coverage.
+
+### GREEN
+
+- Live state equality, presence, and content checks now use operand-free
+  field-only helpers. This includes schedules, prefixes, environment values,
+  compose content, IDs, names, endpoints, registry metadata, and backup state.
+- Database passwords and environment values are registered before every live
+  database create.
+- The static contract parses every `provider/live*_test.go` file plus the
+  Automation API program, scanning only live execution functions while
+  excluding deterministic synthetic unit tests.
+- Docker-registry and GitLab Application source request shapes are asserted
+  exactly; existing ID-only reconstruction and write-only preservation tests
+  remain in place.
+
+Verification:
+
+- Focused diagnostic/source/ownership/request-shape tests — PASS
+- `go test ./... -count=1 -timeout 3m` — PASS
+- `go test -race ./provider -skip 'BackupCreate' -count=1 -timeout 3m` — PASS
+- `go test -race ./tests -count=1 -timeout 3m` — PASS
+- `git diff --check` — PASS
+
+The complete provider race run again hit the existing timing-sensitive backup
+cancellation polling test; no race detector report was emitted.
+
 ## Final verification
 
 - `go test ./provider -run 'Test(ApplicationSource|ComposeSource|Mount|Domain|Destination|Registry|LiveGate|ClassifyLiveServerHealth|OwnedWorkflow)' -count=1` — PASS.

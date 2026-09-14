@@ -189,7 +189,7 @@ func liveBackupForPostgres(t *testing.T, ctx context.Context, api *client.Client
 	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
-	require.Equal(t, statusDone, created.Output.Status)
+	requireLiveEqual(t, "backup.postgres.status", statusDone, created.Output.Status)
 	liveBackupCRUD(t, ctx, Backup{client: fixedClient(api)}, BackupArgs{Schedule: "0 0 * * *", Enabled: false, Prefix: "live-test-", DestinationID: destinationID, Database: "app", PostgresID: &created.ID}, created.ID, "postgresId", target)
 }
 
@@ -208,7 +208,7 @@ func liveBackupForMySQL(t *testing.T, ctx context.Context, api *client.Client, e
 	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
-	require.Equal(t, statusDone, created.Output.Status)
+	requireLiveEqual(t, "backup.mysql.status", statusDone, created.Output.Status)
 	liveBackupCRUD(t, ctx, Backup{client: fixedClient(api)}, BackupArgs{Schedule: "0 0 * * *", Enabled: false, Prefix: "live-test-", DestinationID: destinationID, Database: "app", MySQLID: &created.ID}, created.ID, "mysqlId", target)
 }
 
@@ -226,7 +226,7 @@ func liveBackupForMariaDB(t *testing.T, ctx context.Context, api *client.Client,
 	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
-	require.Equal(t, statusDone, created.Output.Status)
+	requireLiveEqual(t, "backup.mariadb.status", statusDone, created.Output.Status)
 	liveBackupCRUD(t, ctx, Backup{client: fixedClient(api)}, BackupArgs{Schedule: "0 0 * * *", Enabled: false, Prefix: "live-test-", DestinationID: destinationID, Database: "app", MariaDBID: &created.ID}, created.ID, "mariadbId", target)
 }
 
@@ -245,7 +245,7 @@ func liveBackupForMongoDB(t *testing.T, ctx context.Context, api *client.Client,
 	handleLiveHeavyCreateError(t, lease, created.ID, err, func() { target.cleanup(t) }, liveServerHealthProbe(api))
 	t.Cleanup(func() { target.cleanup(t) })
 	requireNoError(t, err)
-	require.Equal(t, statusDone, created.Output.Status)
+	requireLiveEqual(t, "backup.mongodb.status", statusDone, created.Output.Status)
 	liveBackupCRUD(t, ctx, Backup{client: fixedClient(api)}, BackupArgs{Schedule: "0 0 * * *", Enabled: false, Prefix: "live-test-", DestinationID: destinationID, Database: "app", MongoID: &created.ID}, created.ID, "mongoId", target)
 }
 
@@ -285,16 +285,16 @@ func liveBackupCRUD(t *testing.T, ctx context.Context, r Backup, inputs BackupAr
 	requireNoError(t, err)
 	post, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: backupID, State: changed.Output})
 	requireNoError(t, err)
-	require.Equal(t, updated.Schedule, post.Inputs.Schedule)
-	require.Equal(t, updated.Prefix, post.Inputs.Prefix)
-	require.NotNil(t, post.Inputs.KeepLatestCount, "Backup post-update read omitted keepLatestCount")
-	require.Equal(t, 3, *post.Inputs.KeepLatestCount, "Backup post-update keepLatestCount changed unexpectedly")
+	requireLiveEqual(t, "backup.schedule", updated.Schedule, post.Inputs.Schedule)
+	requireLiveEqual(t, "backup.prefix", updated.Prefix, post.Inputs.Prefix)
+	requireLivePresent(t, "backup.keepLatestCount", post.Inputs.KeepLatestCount)
+	requireLiveEqual(t, "backup.keepLatestCount", 3, *post.Inputs.KeepLatestCount)
 	require.False(t, post.Inputs.Enabled)
 	imported, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: backupID})
 	requireNoError(t, err)
 	requireLiveEqual(t, "backup.id", backupID, imported.State.BackupID)
-	require.NotNil(t, imported.Inputs.KeepLatestCount, "Backup ID-only import omitted keepLatestCount")
-	require.Equal(t, 3, *imported.Inputs.KeepLatestCount, "Backup ID-only import keepLatestCount changed unexpectedly")
+	requireLivePresent(t, "backup.keepLatestCount import", imported.Inputs.KeepLatestCount)
+	requireLiveEqual(t, "backup.keepLatestCount import", 3, *imported.Inputs.KeepLatestCount)
 	require.False(t, imported.Inputs.Enabled)
 	diff, err := r.Diff(ctx, infer.DiffRequest[BackupArgs, BackupState]{Inputs: post.Inputs, State: post.State})
 	requireNoError(t, err)
@@ -313,8 +313,8 @@ func liveBackupCRUD(t *testing.T, ctx context.Context, r Backup, inputs BackupAr
 	}
 	diff, err = r.Diff(ctx, infer.DiffRequest[BackupArgs, BackupState]{Inputs: replacement, State: post.State})
 	requireNoError(t, err)
-	require.Equal(t, p.UpdateReplace, diff.DetailedDiff[replacementField].Kind)
-	require.NoError(t, func() error { _, e := r.Delete(ctx, infer.DeleteRequest[BackupState]{ID: backupID}); return e }())
+	requireLiveEqual(t, "backup.target diff", p.UpdateReplace, diff.DetailedDiff[replacementField].Kind)
+	requireLiveLifecycleNoError(t, "backup", "delete", func() error { _, e := r.Delete(ctx, infer.DeleteRequest[BackupState]{ID: backupID}); return e }())
 	backupID = ""
 	cleanupID.clear()
 	gone, err := r.Read(ctx, infer.ReadRequest[BackupArgs, BackupState]{ID: created.ID})
@@ -351,7 +351,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 		}
 		requireNoError(t, err)
 		requireLivePresent(t, "application.id", targetID)
-		require.Equal(t, statusDone, created.Output.Status, "Application prerequisite must reach statusDone before VolumeBackup creation")
+		requireLiveEqual(t, "application.status", statusDone, created.Output.Status)
 	} else {
 		r := Compose{client: fixedClient(api)}
 		created, err := r.Create(ctx, infer.CreateRequest[ComposeArgs]{Inputs: ComposeArgs{Name: liveRunName("volume-compose-target"), EnvironmentID: environmentID, Source: ComposeSource{Type: ComposeSourceRaw, Raw: &RawComposeSource{ComposeFile: "services:\n  web:\n    image: nginx:1.27\n"}}}})
@@ -370,7 +370,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 		}
 		requireNoError(t, err)
 		requireLivePresent(t, "compose.id", targetID)
-		require.Equal(t, statusDone, created.Output.Status, "Compose prerequisite must reach statusDone before VolumeBackup creation")
+		requireLiveEqual(t, "compose.status", statusDone, created.Output.Status)
 	}
 	var appID, composeID, service string
 	if application {
@@ -401,7 +401,7 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 		})
 	}
 	requireNoError(t, err)
-	require.NotEmpty(t, id)
+	requireLivePresent(t, "volumeBackup.id", id)
 	read, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id})
 	requireNoError(t, err)
 	require.False(t, read.Inputs.Enabled)
@@ -414,16 +414,16 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 	requireNoError(t, err)
 	post, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id, State: changed.Output})
 	requireNoError(t, err)
-	require.Equal(t, updated.CronExpression, post.Inputs.CronExpression)
-	require.Equal(t, updated.Prefix, post.Inputs.Prefix)
-	require.NotNil(t, post.Inputs.KeepLatestCount)
-	require.Equal(t, 3, *post.Inputs.KeepLatestCount)
+	requireLiveEqual(t, "volumeBackup.schedule", updated.CronExpression, post.Inputs.CronExpression)
+	requireLiveEqual(t, "volumeBackup.prefix", updated.Prefix, post.Inputs.Prefix)
+	requireLivePresent(t, "volumeBackup.keepLatestCount", post.Inputs.KeepLatestCount)
+	requireLiveEqual(t, "volumeBackup.keepLatestCount", 3, *post.Inputs.KeepLatestCount)
 	require.False(t, post.Inputs.Enabled)
 	imported, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id})
 	requireNoError(t, err)
 	requireLiveEqual(t, "volumeBackup.id", id, imported.State.VolumeBackupID)
-	require.NotNil(t, imported.Inputs.KeepLatestCount)
-	require.Equal(t, 3, *imported.Inputs.KeepLatestCount)
+	requireLivePresent(t, "volumeBackup.keepLatestCount import", imported.Inputs.KeepLatestCount)
+	requireLiveEqual(t, "volumeBackup.keepLatestCount import", 3, *imported.Inputs.KeepLatestCount)
 	diff, err := r.Diff(ctx, infer.DiffRequest[VolumeBackupArgs, VolumeBackupState]{Inputs: post.Inputs, State: post.State})
 	requireNoError(t, err)
 	require.False(t, diff.HasChanges)
@@ -438,9 +438,9 @@ func liveVolumeBackupTarget(t *testing.T, ctx context.Context, api *client.Clien
 	}
 	diff, err = r.Diff(ctx, infer.DiffRequest[VolumeBackupArgs, VolumeBackupState]{Inputs: replacement, State: post.State})
 	requireNoError(t, err)
-	require.Equal(t, p.UpdateReplace, diff.DetailedDiff["applicationId"].Kind)
-	require.Equal(t, p.UpdateReplace, diff.DetailedDiff["composeId"].Kind)
-	require.NoError(t, func() error { _, e := r.Delete(ctx, infer.DeleteRequest[VolumeBackupState]{ID: id}); return e }())
+	requireLiveEqual(t, "volumeBackup.applicationId diff", p.UpdateReplace, diff.DetailedDiff["applicationId"].Kind)
+	requireLiveEqual(t, "volumeBackup.composeId diff", p.UpdateReplace, diff.DetailedDiff["composeId"].Kind)
+	requireLiveLifecycleNoError(t, "volumeBackup", "delete", func() error { _, e := r.Delete(ctx, infer.DeleteRequest[VolumeBackupState]{ID: id}); return e }())
 	cleanupID.clear()
 	gone, err := r.Read(ctx, infer.ReadRequest[VolumeBackupArgs, VolumeBackupState]{ID: id})
 	requireNoError(t, err)

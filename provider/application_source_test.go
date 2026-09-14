@@ -28,6 +28,19 @@ func TestApplicationGitSourceSavesAndClearsSSHKey(t *testing.T) {
 	}
 }
 
+func TestApplicationDockerRegistrySourceRequestShape(t *testing.T) {
+	password := "docker-password-sentinel"
+	s := newScriptedServer(t, expectPOST("/api/application.saveDockerProvider", `{"applicationId":"application-sentinel","dockerImage":"registry.example/team/api:1","password":"docker-password-sentinel","registryUrl":"https://registry.example","username":"registry-user-sentinel"}`, `true`))
+	err := configureApplicationSource(context.Background(), fixedClient(s.API())(context.Background()), "application-sentinel", ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "registry.example/team/api:1", RegistryURL: stringPtr("https://registry.example"), Username: stringPtr("registry-user-sentinel"), Password: &password}})
+	require.NoError(t, err)
+}
+
+func TestApplicationGitLabSourceRequestShape(t *testing.T) {
+	s := newScriptedServer(t, expectPOST("/api/application.saveGitlabProvider", `{"applicationId":"application-sentinel","enableSubmodules":true,"gitlabBranch":"release","gitlabBuildPath":"services/api","gitlabId":"integration-sentinel","gitlabOwner":"owner-sentinel","gitlabPathNamespace":"platform/api","gitlabProjectId":42,"gitlabRepository":"service-sentinel","watchPaths":["services/**"]}`, `true`))
+	err := configureApplicationSource(context.Background(), fixedClient(s.API())(context.Background()), "application-sentinel", ApplicationSource{Type: SourceGitLab, GitLab: &GitLabAppSource{IntegrationID: "integration-sentinel", ProjectID: 42, Owner: "owner-sentinel", Namespace: "platform/api", Repository: "service-sentinel", Branch: "release", BuildPath: stringPtr("services/api"), WatchPaths: []string{"services/**"}, EnableSubmodules: true}})
+	require.NoError(t, err)
+}
+
 func TestApplicationSourceIDOnlyReadReconstructsAllFields(t *testing.T) {
 	tests := []struct {
 		name            string

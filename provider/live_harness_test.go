@@ -855,6 +855,13 @@ func requireLiveEqual(t *testing.T, field string, want, got interface{}) {
 	}
 }
 
+func requireLiveContains(t *testing.T, field string, got, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Errorf("live field %s did not contain expected content", field)
+	}
+}
+
 func redactedLiveMismatch(field string) string {
 	return fmt.Sprintf("live field %s did not match", field)
 }

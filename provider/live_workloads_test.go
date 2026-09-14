@@ -68,12 +68,12 @@ func TestLiveTier2Workloads(t *testing.T) {
 		requireLivePresent(t, "application.id", created.ID)
 		applicationID = created.ID
 		applicationStatus = created.Output.Status
-		require.Equal(t, statusDone, created.Output.Status)
+		requireLiveEqual(t, "application.status", statusDone, created.Output.Status)
 
 		read, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID, State: created.Output})
 		requireNoError(t, err)
-		require.Equal(t, SourceDocker, read.Inputs.Source.Type)
-		require.Equal(t, "nginx:1.27", read.Inputs.Source.Docker.Image)
+		requireLiveEqual(t, "application.source.type", SourceDocker, read.Inputs.Source.Type)
+		requireLiveEqual(t, "application.source.docker.image", "nginx:1.27", read.Inputs.Source.Docker.Image)
 		updated := read.Inputs
 		updated.Name += "-updated"
 		updatedDescription := "updated by live workload test"
@@ -84,16 +84,16 @@ func TestLiveTier2Workloads(t *testing.T) {
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
-		require.Equal(t, updated.Name, postUpdate.Inputs.Name)
-		require.Equal(t, updatedDescription, value(postUpdate.Inputs.Description))
+		requireLiveEqual(t, "application.name", updated.Name, postUpdate.Inputs.Name)
+		requireLiveEqual(t, "application.description", updatedDescription, value(postUpdate.Inputs.Description))
 		imported, err := r.Read(ctx, infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: created.ID})
 		requireNoError(t, err)
 		requireLiveEqual(t, "application.id", created.ID, imported.State.ApplicationID)
-		require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
+		requireLiveEqual(t, "application.name", postUpdate.Inputs.Name, imported.Inputs.Name)
 		requireLiveEqual(t, "application.environmentId", postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
-		require.Equal(t, SourceDocker, imported.Inputs.Source.Type)
-		require.NotNil(t, imported.Inputs.Source.Docker)
-		require.Equal(t, "nginx:1.27", imported.Inputs.Source.Docker.Image)
+		requireLiveEqual(t, "application.source.type import", SourceDocker, imported.Inputs.Source.Type)
+		requireLivePresent(t, "application.source.docker", imported.Inputs.Source.Docker)
+		requireLiveEqual(t, "application.source.docker.image import", "nginx:1.27", imported.Inputs.Source.Docker.Image)
 
 		diff, err := r.Diff(ctx, infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
@@ -113,18 +113,18 @@ func TestLiveTier2Workloads(t *testing.T) {
 			change.apply(&changedInputs)
 			changedDiff, diffErr := r.Diff(ctx, infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: changedInputs, State: postUpdate.State})
 			requireNoError(t, diffErr)
-			require.Equal(t, p.Update, changedDiff.DetailedDiff[change.field].Kind)
+			requireLiveEqual(t, "application.diff."+change.field, p.Update, changedDiff.DetailedDiff[change.field].Kind)
 		}
 		replacement := postUpdate.Inputs
 		replacement.Source = ApplicationSource{Type: SourceGit, Git: &GitApplicationSource{URL: "https://github.com/dimeskigj/pulumi-dokploy", Branch: "main", Build: ApplicationBuild{Type: BuildNixpacks}}}
 		diff, err = r.Diff(ctx, infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: replacement, State: postUpdate.State})
 		requireNoError(t, err)
-		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["source.type"].Kind)
+		requireLiveEqual(t, "application.diff.source.type", p.UpdateReplace, diff.DetailedDiff["source.type"].Kind)
 		environmentReplacement := postUpdate.Inputs
 		environmentReplacement.Environment = stringPtr("REPLACED=1")
 		diff, err = r.Diff(ctx, infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: environmentReplacement, State: postUpdate.State})
 		requireNoError(t, err)
-		require.Equal(t, p.Update, diff.DetailedDiff["environment"].Kind)
+		requireLiveEqual(t, "application.diff.environment", p.Update, diff.DetailedDiff["environment"].Kind)
 
 	})
 
@@ -146,11 +146,11 @@ func TestLiveTier2Workloads(t *testing.T) {
 		requireLivePresent(t, "compose.id", created.ID)
 		composeID = created.ID
 		composeStatus = created.Output.Status
-		require.Equal(t, statusDone, created.Output.Status)
+		requireLiveEqual(t, "compose.status", statusDone, created.Output.Status)
 
 		read, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID, State: created.Output})
 		requireNoError(t, err)
-		require.Equal(t, ComposeSourceRaw, read.Inputs.Source.Type)
+		requireLiveEqual(t, "compose.source.type", ComposeSourceRaw, read.Inputs.Source.Type)
 		updated := read.Inputs
 		updated.Name += "-updated"
 		updatedDescription := "updated by live workload test"
@@ -161,15 +161,15 @@ func TestLiveTier2Workloads(t *testing.T) {
 		requireNoError(t, err)
 		postUpdate, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID, State: changed.Output})
 		requireNoError(t, err)
-		require.Equal(t, updated.Name, postUpdate.Inputs.Name)
+		requireLiveEqual(t, "compose.name", updated.Name, postUpdate.Inputs.Name)
 		imported, err := r.Read(ctx, infer.ReadRequest[ComposeArgs, ComposeState]{ID: created.ID})
 		requireNoError(t, err)
 		requireLiveEqual(t, "compose.id", created.ID, imported.State.ComposeID)
-		require.Equal(t, postUpdate.Inputs.Name, imported.Inputs.Name)
+		requireLiveEqual(t, "compose.name", postUpdate.Inputs.Name, imported.Inputs.Name)
 		requireLiveEqual(t, "compose.environmentId", postUpdate.Inputs.EnvironmentID, imported.Inputs.EnvironmentID)
-		require.Equal(t, ComposeSourceRaw, imported.Inputs.Source.Type)
-		require.NotNil(t, imported.Inputs.Source.Raw)
-		require.Contains(t, imported.Inputs.Source.Raw.ComposeFile, "image: nginx:1.27")
+		requireLiveEqual(t, "compose.source.type import", ComposeSourceRaw, imported.Inputs.Source.Type)
+		requireLivePresent(t, "compose.source.raw", imported.Inputs.Source.Raw)
+		requireLiveContains(t, "compose.source.raw.composeFile", imported.Inputs.Source.Raw.ComposeFile, "image: nginx:1.27")
 		for _, change := range []struct {
 			field string
 			apply func(*ComposeArgs)
@@ -183,7 +183,7 @@ func TestLiveTier2Workloads(t *testing.T) {
 			change.apply(&changedInputs)
 			changedDiff, diffErr := r.Diff(ctx, infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: changedInputs, State: postUpdate.State})
 			requireNoError(t, diffErr)
-			require.Equal(t, change.kind, changedDiff.DetailedDiff[change.field].Kind)
+			requireLiveEqual(t, "compose.diff."+change.field, change.kind, changedDiff.DetailedDiff[change.field].Kind)
 		}
 		diff, err := r.Diff(ctx, infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: postUpdate.Inputs, State: postUpdate.State})
 		requireNoError(t, err)
@@ -191,10 +191,10 @@ func TestLiveTier2Workloads(t *testing.T) {
 		sourceReplacement, environmentReplacement := composeDiffInputs(postUpdate.Inputs)
 		diff, err = r.Diff(ctx, infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: sourceReplacement, State: postUpdate.State})
 		requireNoError(t, err)
-		require.Equal(t, p.UpdateReplace, diff.DetailedDiff["source.type"].Kind)
+		requireLiveEqual(t, "compose.diff.source.type", p.UpdateReplace, diff.DetailedDiff["source.type"].Kind)
 		diff, err = r.Diff(ctx, infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: environmentReplacement, State: postUpdate.State})
 		requireNoError(t, err)
-		require.Equal(t, p.Update, diff.DetailedDiff["environment"].Kind)
+		requireLiveEqual(t, "compose.diff.environment", p.Update, diff.DetailedDiff["environment"].Kind)
 	})
 
 	workloadTargets := []struct {

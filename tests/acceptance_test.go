@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
-	"regexp"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -161,23 +164,95 @@ func TestLiveAcceptanceReadmeContract(t *testing.T) {
 }
 
 func TestLiveDiagnosticSourceContract(t *testing.T) {
-	files := []string{"acceptance_program_test.go", "../provider/live_test.go", "../provider/live_control_plane_test.go", "../provider/live_workloads_test.go", "../provider/live_databases_test.go", "../provider/live_backups_test.go"}
-	checks := []*regexp.Regexp{
-		regexp.MustCompile(`err\.Error\(\)`),
-		regexp.MustCompile(`%#v`),
-		regexp.MustCompile(`require\.(?:Equal|Empty|NotEmpty)\(t, [^\n]*(?:created\.ID|imported\.State\.[A-Za-z]*ID|backupID|targetID|read\.ID)`),
+	files, err := filepath.Glob("../provider/live*_test.go")
+	if err != nil {
+		t.Fatal(err)
 	}
+	files = append(files, "acceptance_program_test.go")
 	for _, path := range files {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, pattern := range checks {
-			if pattern.Match(content) {
-				t.Errorf("live-sensitive diagnostic pattern %s remains in %s", pattern, path)
-			}
+		violations := liveDiagnosticViolations(path, content)
+		for _, violation := range violations {
+			t.Error(violation)
 		}
 	}
+}
+
+func liveDiagnosticViolations(path string, source []byte) []string {
+	set := token.NewFileSet()
+	file, err := parser.ParseFile(set, path, source, 0)
+	if err != nil {
+		return []string{path + ": parse failed"}
+	}
+	violations := []string{}
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil || !isLiveExecutionFunction(path, function.Name.Name) {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if receiver, ok := selector.X.(*ast.Ident); ok && receiver.Name == "require" && (selector.Sel.Name == "NotEmpty" || selector.Sel.Name == "Contains" || (selector.Sel.Name == "Equal" && sensitiveAssertion(call))) {
+					violations = append(violations, path+": ordinary require."+selector.Sel.Name+" in "+function.Name.Name)
+				}
+				if selector.Sel.Name == "Error" {
+					if receiver, ok := selector.X.(*ast.Ident); ok && receiver.Name == "err" {
+						violations = append(violations, path+": err.Error() in "+function.Name.Name)
+					}
+				}
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Sprintf" && len(call.Args) > 0 {
+				if format, ok := call.Args[0].(*ast.BasicLit); ok && strings.Contains(format.Value, "%#v") {
+					violations = append(violations, path+": %#v formatting in "+function.Name.Name)
+				}
+			}
+			return true
+		})
+	}
+	return violations
+}
+
+func sensitiveAssertion(call *ast.CallExpr) bool {
+	if len(call.Args) < 2 {
+		return true
+	}
+	sensitive := false
+	for _, argument := range call.Args[1:] {
+		ast.Inspect(argument, func(node ast.Node) bool {
+			identifier, ok := node.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			name := strings.ToLower(identifier.Name)
+			for _, marker := range []string{"id", "name", "endpoint", "bucket", "region", "prefix", "schedule", "content", "password", "environment", "source", "state", "output"} {
+				if strings.Contains(name, marker) {
+					sensitive = true
+				}
+			}
+			return true
+		})
+	}
+	return sensitive
+}
+
+func isLiveExecutionFunction(path, name string) bool {
+	if strings.HasSuffix(path, "live_harness_unit_test.go") {
+		return strings.HasPrefix(name, "live") || strings.HasPrefix(name, "runLive")
+	}
+	if strings.HasSuffix(path, "acceptance_program_test.go") {
+		return name == "runLifecycleSmoke" || strings.HasPrefix(name, "assertLifecycle")
+	}
+	if strings.HasPrefix(name, "Test") {
+		return strings.HasPrefix(name, "TestLiveTier")
+	}
+	return strings.HasPrefix(name, "live") || strings.HasPrefix(name, "runLive") || strings.HasPrefix(name, "deleteAndRead") || strings.HasPrefix(name, "finishDatabase") || strings.HasPrefix(name, "cleanupDirect")
 }
 
 func TestAcceptanceFailureIsFieldOnly(t *testing.T) {
