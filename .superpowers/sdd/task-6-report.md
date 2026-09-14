@@ -156,3 +156,9 @@ untouched.
 The ledger now records the sanitized Make-target race result distinctly from
 the accidental inherited live opt-in failure. External Registry actions remain
 pending and unchecked.
+
+The first post-commit `env -u DOKPLOY_ACCEPTANCE -u DOKPLOY_ENDPOINT -u
+DOKPLOY_API_KEY make test_race` still used mise's cached acceptance environment.
+After temporarily moving the ignored parent `.env` aside and running `mise cache
+clear`, the exact same `env -u ... make test_race` command passed with live tests
+skipped; the `.env` was restored immediately by a shell trap.
