@@ -128,3 +128,8 @@ pre-existing Task 1 report modification.
 External Registry actions remain pending and unchecked. The temporary pinned
 renderer, Gradle distribution, Java runtime, generated binaries, and build
 outputs are outside the repository and were not committed.
+
+The remediation changes and updated ledger are committed as
+`c5b7112 fix: complete registry readiness verification`. The pre-existing
+`.superpowers/sdd/task-1-report.md` modification remains intentionally
+untouched.
