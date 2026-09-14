@@ -1,98 +1,87 @@
-# Pulumi Registry Readiness Assessment
+# Pulumi Registry Readiness Ledger
 
-Date: 2026-09-08
+Date: 2026-09-14
 
-## Summary
+Pulumi Dokploy is **not yet Registry-ready**. Repository evidence and public
+package availability are separated below from external actions that remain
+pending. Every external item must have evidence before Registry readiness can
+be claimed.
 
-Pulumi Dokploy has completed the repository-side Registry preparation work. It
-has provider-specific request identification, plugin download metadata and
-keywords, Registry documentation, the complete Apache License 2.0 text,
-pull-request schema compatibility checking, release checksums/SBOMs/attestations,
-and a manual exact-version release smoke workflow.
+## Repository-complete
 
-It is **not yet Registry-ready for publication**. A corrected release must be
-published and the required maintainer inputs and Registry publication steps
-must still be completed and verified.
+- Registry overview follows the current six-language structure and passes
+  contract/documentation checks in `docs/_index.md`.
+- Public whale logo, attribution, and generated `logoUrl` metadata are present.
+- Private security and conduct reports use `contact@dimeski.net`.
+- `.github/CODEOWNERS` assigns repository ownership to `@dimeskigj`.
+- The publication runbook records all external actions without claiming
+  completion.
+- Existing User-Agent, plugin download metadata, keywords, license, schema
+  compatibility, checksums, SBOMs, attestations, and `release-smoke` workflow
+  remain covered.
 
-## Completed repository work
+## Publicly available
 
-- Provider-specific `User-Agent` with development fallback and retry coverage.
-- `pluginDownloadURL` and Registry discovery keywords in the provider schema and
-  regenerated SDK metadata.
-- `docs/_index.md` and `docs/installation-configuration.md` with installation,
-  configuration, examples, and community-maintenance status.
-- Complete canonical Apache License 2.0 text.
-- Pull-request-only schema compatibility checking.
-- Release SHA256 checksums, archive SBOMs, and GitHub OIDC build-provenance
-  attestations for stable and prerelease provider artifacts.
-- Manual exact-version provider and five-language release smoke workflow,
-  including fresh Pulumi homes and provider archive checksum verification.
+- Stable GitHub release `v0.2.2` exists with provider archives and checksums.
+- The dated Task 5 anonymous public-package probes are recorded below.
+- Anonymous availability is not runtime verification and does not replace a
+  successful clean-cache `release-smoke` dispatch.
 
-## Explicitly deferred or still required
+## External pending
 
-These items are intentionally not represented as complete:
-
-- Logo and `logoUrl`.
-- Security/private reporting contact.
-- Maintainer/publisher display-name mapping.
-- CODEOWNERS/governance ownership.
-- Code of Conduct enforcement contact.
-- Registry PR and release publication.
-- Lookup functions and broad engine acceptance.
-
-The Registry PR and release smoke workflow require a real corrected public
-release. The workflow has not been dispatched against one. Do not describe the
-provider as Registry-ready until the required maintainer inputs are supplied,
-the corrected release exists, and publication has been verified.
-
-## Task 6 residuals and release-smoke limitations
-
-- A real public release dispatch was not run; static workflow and semantic tests
-  do not replace dispatch evidence.
-- Pulumi CLI downloads used by the workflow are not checksum-verified.
-- Java package and runtime behavior remains unverified because no real public
-  release dispatch was run.
-- The workflow's static tests validate its contract but cannot prove package
-  availability, plugin acquisition, or language-runtime behavior.
-
-## Production correctness and acceptance scope
-
-Backup creation now uses bounded post-create identity discovery and safe error
-messages, with regression coverage. Direct provider and live API tests remain
-substantial, but broad Pulumi engine lifecycle acceptance is still deferred.
-The existing engine smoke coverage does not establish acceptance for all
-workloads, databases, domains, credentials, mounts, and backups, including
-import, refresh, replacement, secrets, and interrupted operations.
+- Successful `release-smoke` dispatch for `0.2.2` with all six jobs.
+- Upstream `community-packages/package-list.json` entry.
+- Maintainer-approved publisher display name and upstream
+  `publisher-names.json` mapping to `dimeskigj`.
+- Registry `fact-sheet`, `/check`, `/preview`, six-language and logo preview
+  inspection.
+- Pulumi Registry CODEOWNER approval, merge, deployment, and public page
+  verification.
 
 ## Verification evidence
 
-Passed:
+- `go test ./provider -run '^TestRegistryReadinessLedgerSeparatesEvidenceStates$' -count=1`
+  passed after the ledger rewrite; the required red run failed because the
+  historical ledger lacked the three evidence-state headings.
+- `go test ./provider -run 'Registry|SchemaPublishingMetadata|GeneratedPublishingMetadata' -count=1`,
+  `make test_provider`, `go test -race ./provider/... ./internal/...`,
+  `make check_openapi`, `make docs_check`, `mise exec golangci-lint@2.9.0 --
+  golangci-lint run`, `make govulncheck`, and `make license` passed.
+- `make docs_check` reported three existing high-severity npm advisories and
+  the existing missing `website/src/icons` warning; these remain out of scope.
+- `make test_race` exceeded the 120-second command limit. Its pinned equivalent
+  `go test -race ./provider/... ./internal/...` passed; no historical race flake
+  recurred in this run.
+- `make check_codegen` could not complete: the pinned Pulumi 3.259.0 generation
+  reached the repository's renderer assertion, but the installed
+  `rsvg-convert` was not version 2.58.0. Generated incidental changes were
+  restored and no codegen drift was claimed.
+- `make build_sdks` passed Go and Python stages but failed at the existing .NET
+  stage because `sdk/dotnet/version.txt` is missing; Java was not reached.
+- `make lint` could not run because the unwrapped `golangci-lint` executable is
+  unavailable; the pinned v2.9.0 equivalent above passed.
+- The publication runbook remains unchecked; no release-smoke workflow was
+  dispatched, and no upstream Registry files or Registry page were modified.
 
-- `gofmt` on all Task 7-listed Go files and `git diff --check`.
-- `make test_provider`.
-- `make docs_check` (website checks/build passed; existing three high-severity
-  npm advisories and the existing missing `src/icons` warning remain out of
-  scope).
-- Pinned Pulumi 3.259.0 schema regeneration and OpenAPI v2.8.0 drift check.
-- Pinned golangci-lint v2.9.0 equivalent after correcting a task-related G306
-  fixture finding.
-- Pinned `govulncheck` v1.1.4 equivalent: no reachable vulnerabilities.
-- Pinned `go-licenses` v1.6.0 equivalent.
-- Pinned GoReleaser v2.18.1 validation for both release configurations.
+## Residual risks and limitations
 
-Not available or not fully passing locally:
+- `release-smoke` has not run; its Pulumi CLI downloads are not
+  checksum-verified, and Java package/runtime behavior remains unverified.
+- Broad engine acceptance remains deferred and is not a Registry blocker.
+- Existing website npm advisories and the missing `src/icons` warning remain
+  outside this readiness task.
 
-- `mise` is unavailable, so the Makefile wrappers `make test_race`,
-  `make check_codegen`, `make check_openapi`, `make govulncheck`, and
-  `make license` could not run as written. Pinned equivalents were run where
-  available; the OpenAPI and security/license checks passed.
-- The pinned `go test -race ./provider/... ./internal/...` suite had one
-  timing-sensitive failure in `TestBackupCreateDeadlineErrorOmitsTargetID`
-  because its scripted server retained one poll request. The test passed in
-  repeated non-race runs and was not changed because this Task 7 ledger work
-  does not broaden into unrelated race-test repair.
-- No live Dokploy acceptance or public release smoke dispatch was run; explicit
-  credentials and release opt-in were not available.
+## Public v0.2.2 availability probes
 
-Website npm advisories, logo/contacts/governance gaps, and other deferred items
-are not fixed by this task.
+Date: 2026-09-14
+
+- `GitHub release and provider artifacts` - PASS - `https://api.github.com/repos/dimeskigj/pulumi-dokploy/releases/tags/v0.2.2` - HTTP success; JSON reported `tag_name` `v0.2.2`, `draft` `false`, and `prerelease` `false`, with `checksums.txt`, Linux/macOS/Windows provider archives for amd64 and arm64, and a `.sbom.json` asset for each archive.
+- `npm` - PASS - `npm view @dimeskigj/pulumi-dokploy@0.2.2 version --json` - observed `"0.2.2"`.
+- `PyPI` - PASS - `https://pypi.org/pypi/pulumi-dokploy/0.2.2/json` - HTTP success; JSON `info.version` was `0.2.2`.
+- `NuGet` - PASS - `https://api.nuget.org/v3-flatcontainer/dimeskigj.pulumi.dokploy/0.2.2/dimeskigj.pulumi.dokploy.nuspec` - HTTP success; XML contained `<version>0.2.2</version>`.
+- `Maven Central` - PASS - `https://repo1.maven.org/maven2/net/dimeski/pulumi/dokploy/0.2.2/dokploy-0.2.2.pom` - HTTP success; POM contained group `net.dimeski.pulumi`, artifact `dokploy`, and version `0.2.2`.
+- `Go proxy` - PASS - `https://proxy.golang.org/github.com/dimeskigj/pulumi-dokploy/sdk/go/dokploy/@v/v0.2.2.info` - HTTP success; JSON `Version` was `v0.2.2`.
+
+These anonymous probes establish public package availability only. They do not
+replace the clean-cache installation and runtime evidence from a successful
+`release-smoke` dispatch.

@@ -72,6 +72,24 @@ func TestRegistryPublicationRunbook(t *testing.T) {
 	require.NotContains(t, runbook, "Registry PR has been opened")
 }
 
+func TestRegistryReadinessLedgerSeparatesEvidenceStates(t *testing.T) {
+	ledger := readProjectFile(t, "../docs/provider-registry-readiness.md")
+	for _, heading := range []string{
+		"## Repository-complete", "## Publicly available", "## External pending",
+	} {
+		require.Contains(t, ledger, heading)
+	}
+	for _, marker := range []string{
+		"v0.2.2", "docs/_index.md", "logoUrl", "contact@dimeski.net",
+		".github/CODEOWNERS", "release-smoke", "community-packages/package-list.json",
+		"publisher-names.json", "fact-sheet", "preview", "Registry CODEOWNER",
+	} {
+		require.Contains(t, ledger, marker)
+	}
+	require.Contains(t, ledger, "not yet Registry-ready")
+	require.NotContains(t, ledger, "corrected release must be published")
+}
+
 func TestRegistryOverviewLanguageChoosers(t *testing.T) {
 	index := readProjectFile(t, "../docs/_index.md")
 	chooser := `{{< chooser language "typescript,python,go,csharp,java,yaml" >}}`
