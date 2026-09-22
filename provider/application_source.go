@@ -3,6 +3,7 @@ package dokploy
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client"
@@ -370,4 +371,44 @@ func sanitizeError(err error, secrets ...string) error {
 		}
 	}
 	return fmt.Errorf("%s", message)
+}
+
+// sameApplicationSource compares an application source the way a user's program
+// and a Read-derived state must be compared. A program that omits watchPaths
+// yields nil, while application.one reports the same application with an empty
+// list, and reflect.DeepEqual would call those two different — a diff (and a
+// redeploy) for a configuration nobody changed.
+func sameApplicationSource(a, b ApplicationSource) bool {
+	return reflect.DeepEqual(normalizeApplicationSource(a), normalizeApplicationSource(b))
+}
+
+func normalizeApplicationSource(source ApplicationSource) ApplicationSource {
+	switch source.Type {
+	case SourceGit:
+		if source.Git != nil {
+			git := *source.Git
+			git.WatchPaths = normalizeWatchPaths(git.WatchPaths)
+			source.Git = &git
+		}
+	case SourceGitLab:
+		if source.GitLab != nil {
+			gitlab := *source.GitLab
+			gitlab.WatchPaths = normalizeWatchPaths(gitlab.WatchPaths)
+			source.GitLab = &gitlab
+		}
+	case SourceGitHub:
+		if source.GitHub != nil {
+			github := *source.GitHub
+			github.WatchPaths = normalizeWatchPaths(github.WatchPaths)
+			source.GitHub = &github
+		}
+	}
+	return source
+}
+
+func normalizeWatchPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	return paths
 }

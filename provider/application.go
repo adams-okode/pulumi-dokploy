@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client"
@@ -110,7 +109,7 @@ func (r Application) Diff(_ context.Context, req infer.DiffRequest[ApplicationAr
 	if !sameOptionalString(req.Inputs.Description, req.State.Description) {
 		d["description"] = p.PropertyDiff{Kind: p.Update}
 	}
-	if !reflect.DeepEqual(req.Inputs.Source, req.State.Source) && req.Inputs.Source.Type == req.State.Source.Type {
+	if !sameApplicationSource(req.Inputs.Source, req.State.Source) && req.Inputs.Source.Type == req.State.Source.Type {
 		d["source"] = p.PropertyDiff{Kind: p.Update}
 	}
 	if !sameOptionalString(req.Inputs.Environment, req.State.Environment) {
@@ -390,7 +389,7 @@ func (r Application) Update(ctx context.Context, req infer.UpdateRequest[Applica
 	}
 	metadataChanged := req.Inputs.Name != req.State.Name || !sameOptionalString(req.Inputs.AppName, req.State.AppName) || !sameOptionalString(req.Inputs.Description, req.State.Description)
 	registryChanged := !sameOptionalString(req.Inputs.RegistryID, req.State.RegistryID) || !sameOptionalString(req.Inputs.BuildRegistryID, req.State.BuildRegistryID)
-	runtimeChanged := !reflect.DeepEqual(req.Inputs.Source, req.State.Source) || !sameOptionalString(req.Inputs.Environment, req.State.Environment) || !sameOptionalString(req.Inputs.BuildArgs, req.State.BuildArgs) || !sameOptionalString(req.Inputs.BuildSecrets, req.State.BuildSecrets) || req.Inputs.CreateEnvFile != req.State.CreateEnvFile || registryChanged
+	runtimeChanged := !sameApplicationSource(req.Inputs.Source, req.State.Source) || !sameOptionalString(req.Inputs.Environment, req.State.Environment) || !sameOptionalString(req.Inputs.BuildArgs, req.State.BuildArgs) || !sameOptionalString(req.Inputs.BuildSecrets, req.State.BuildSecrets) || req.Inputs.CreateEnvFile != req.State.CreateEnvFile || registryChanged
 	if metadataChanged || registryChanged {
 		body := generated.ApplicationUpdateJSONRequestBody{ApplicationId: req.ID, AppName: req.Inputs.AppName, Name: &req.Inputs.Name, Description: nullable.NewNullNullable[string]()}
 		if req.Inputs.Description != nil {
