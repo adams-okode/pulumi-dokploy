@@ -71,6 +71,17 @@ func (r Compose) Check(ctx context.Context, req infer.CheckRequest) (infer.Check
 	if in.Source.Type == ComposeSourceGitLab && in.Source.GitLab != nil && in.Source.GitLab.ComposePath == "" {
 		in.Source.GitLab.ComposePath = defaultComposePath
 	}
+	if in.Source.Type == ComposeSourceGitHub && in.Source.GitHub != nil {
+		if in.Source.GitHub.ComposePath == "" {
+			in.Source.GitHub.ComposePath = defaultComposePath
+		}
+		// Dokploy defaults triggerType to push. Normalizing an omitted value keeps the
+		// recorded input identical to what a later Read reports, so the property
+		// cannot show a spurious diff.
+		if in.Source.GitHub.TriggerType == "" {
+			in.Source.GitHub.TriggerType = ComposeTriggerPush
+		}
+	}
 	if in.Name == "" {
 		failures = append(failures, p.CheckFailure{Property: "name", Reason: "name must not be empty"})
 	}
@@ -270,6 +281,12 @@ func decodeComposeSource(m map[string]interface{}, prior ComposeSource) (Compose
 		s.Git = &GitComposeSource{URL: stringValue(m, "url", "customGitUrl"), Branch: stringValue(m, "branch", "customGitBranch"), ComposePath: composePath(stringValue(m, "composePath")), SSHKeyID: stringPointer(m, "customGitSSHKeyId"), WatchPaths: stringSlice(m, "watchPaths"), EnableSubmodules: boolValue(m, "enableSubmodules")}
 	case ComposeSourceGitLab:
 		s.GitLab = &GitLabComposeSource{IntegrationID: stringValue(m, "integrationId", "gitlabId"), ProjectID: int(numberValue(m, "projectId", "gitlabProjectId")), Owner: stringValue(m, "owner", "gitlabOwner"), Namespace: stringValue(m, "namespace", "gitlabPathNamespace"), Repository: stringValue(m, "repository", "gitlabRepository"), Branch: stringValue(m, "branch", "gitlabBranch"), ComposePath: composePath(stringValue(m, "composePath")), WatchPaths: stringSlice(m, "watchPaths"), EnableSubmodules: boolValue(m, "enableSubmodules")}
+	case ComposeSourceGitHub:
+		trigger := ComposeTriggerType(stringValue(m, "triggerType"))
+		if trigger == "" {
+			trigger = ComposeTriggerPush
+		}
+		s.GitHub = &GitHubComposeSource{IntegrationID: stringValue(m, "integrationId", "githubId"), Owner: stringValue(m, "owner"), Repository: stringValue(m, "repository"), Branch: stringValue(m, "branch"), ComposePath: composePath(stringValue(m, "composePath")), WatchPaths: stringSlice(m, "watchPaths"), TriggerType: trigger, EnableSubmodules: boolValue(m, "enableSubmodules")}
 	default:
 		return ComposeSource{}, fmt.Errorf("compose source data has unsupported source.type %q", k)
 	}
