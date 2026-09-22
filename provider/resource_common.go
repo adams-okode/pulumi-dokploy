@@ -71,6 +71,18 @@ func sameOptionalBool(a, b *bool) bool {
 	return *a == *b
 }
 
+// preferLiveSecret adopts a value a *.one read reported, falling back to the value
+// already in state. An empty string counts as "not reported" so that a resource with no
+// stored environment does not turn a nil input into an empty string, which would diff
+// forever. The fallback is what preserves write-only secrets Dokploy never returns.
+func preferLiveSecret(live, prior *string) *string {
+	if live != nil && *live != "" {
+		value := *live
+		return &value
+	}
+	return prior
+}
+
 func initFailed(err error) infer.ResourceInitFailedError {
 	return infer.ResourceInitFailedError{Reasons: []string{err.Error()}}
 }
