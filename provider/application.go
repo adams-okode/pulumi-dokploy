@@ -72,6 +72,12 @@ func (r Application) Check(ctx context.Context, req infer.CheckRequest) (infer.C
 	if inputs.EnvironmentID == "" && !req.NewInputs.Get("environmentId").HasComputed() {
 		failures = append(failures, p.CheckFailure{Property: "environmentId", Reason: "environmentId must not be empty"})
 	}
+	// Dokploy defaults triggerType to push. Normalizing an omitted value here keeps
+	// the recorded input identical to what a later Read reports, so the property
+	// cannot show a spurious diff.
+	if inputs.Source.Type == SourceGitHub && inputs.Source.GitHub != nil && inputs.Source.GitHub.TriggerType == "" {
+		inputs.Source.GitHub.TriggerType = ApplicationTriggerPush
+	}
 	if err := inputs.Source.validate(); err != nil {
 		failures = append(failures, p.CheckFailure{Property: "source", Reason: err.Error()})
 	}
@@ -310,6 +316,18 @@ func decodeApplicationSource(m map[string]interface{}, prior ApplicationSource) 
 			return ApplicationSource{}, fmt.Errorf("application source data omits required gitlab projectId")
 		}
 		result.GitLab.Build = decodeBuild(m)
+	case SourceGitHub:
+		integration := stringValue(m, "integrationId", "githubId")
+		owner, repo, branch := stringValue(m, "owner"), stringValue(m, "repository"), stringValue(m, "branch")
+		if integration == "" || owner == "" || repo == "" || branch == "" {
+			return ApplicationSource{}, fmt.Errorf("application source data omits required github source fields")
+		}
+		trigger := ApplicationTriggerType(stringValue(m, "triggerType"))
+		if trigger == "" {
+			trigger = ApplicationTriggerPush
+		}
+		result.GitHub = &GitHubAppSource{IntegrationID: integration, Owner: owner, Repository: repo, Branch: branch, BuildPath: stringPointer(m, "buildPath"), WatchPaths: stringSlice(m, "watchPaths"), TriggerType: trigger, EnableSubmodules: boolValue(m, "enableSubmodules")}
+		result.GitHub.Build = decodeBuild(m)
 	default:
 		return ApplicationSource{}, fmt.Errorf("application source data has unsupported source.type %q", kind)
 	}
