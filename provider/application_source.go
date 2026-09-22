@@ -309,6 +309,11 @@ func configureApplicationBuild(ctx context.Context, api *client.Client, id strin
 	// bodies stay byte-identical to before Railpack support existed.
 	if b.Type == BuildRailpack {
 		body.IsStaticSpa = nullable.NewNullableWithValue(b.IsStaticSpa)
+		// publishDirectory is sent on every railpack save, null when unset, the way
+		// railpackVersion already is. Omitting the key would leave whatever Dokploy
+		// holds in place, so removing it from a program could never clear it and
+		// every later preview would show the same diff.
+		body.PublishDirectory = nullable.NewNullNullable[string]()
 		if b.RailpackVersion != nil {
 			body.RailpackVersion = nullable.NewNullableWithValue(*b.RailpackVersion)
 		}

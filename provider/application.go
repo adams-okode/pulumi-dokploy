@@ -325,9 +325,13 @@ func decodeApplicationSource(m map[string]interface{}, prior ApplicationSource) 
 }
 
 // decodeBuild reconstructs the build configuration from an application.one payload.
-// An empty buildType means Dokploy has not recorded one yet and defaults to nixpacks,
-// but a non-empty build type the provider does not model is an error rather than a
-// silent downgrade to nixpacks, which would misreport the application's real build.
+// An empty buildType means Dokploy has not recorded one yet and defaults to nixpacks.
+// A non-empty build type the provider does not model — static, heroku_buildpacks and
+// paketo_buildpacks today, plus whatever a later Dokploy release adds — is reported as
+// it is rather than rewritten to nixpacks. Read must not fail on it: an error here
+// aborts the whole refresh or import, not just the one resource, so an application
+// nobody is managing could block reading every application that is. Declaring one of
+// these as an input is still refused by validateBuild.
 func decodeBuild(m map[string]interface{}) (ApplicationBuild, error) {
 	kind := BuildType(stringValue(m, "buildType"))
 	if kind == "" {
@@ -341,7 +345,9 @@ func decodeBuild(m map[string]interface{}) (ApplicationBuild, error) {
 		b.IsStaticSpa = boolValue(m, "isStaticSpa")
 		b.PublishDirectory = stringPointer(m, "publishDirectory")
 	default:
-		return ApplicationBuild{}, fmt.Errorf("application build data has unsupported buildType %q", string(kind))
+		// A build type the provider does not model: keep it verbatim and leave the
+		// modeled extras unset, so the value round-trips and the user sees the
+		// truth in their diff.
 	}
 	return b, nil
 }

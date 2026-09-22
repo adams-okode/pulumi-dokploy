@@ -9,6 +9,7 @@ import (
 
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
+	"github.com/pulumi/pulumi/sdk/v3/go/property"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,35 +61,57 @@ func TestApplicationRailpackBuildDecodeToEncodeRoundTrip(t *testing.T) {
 	require.NoError(t, configureApplicationBuild(context.Background(), fixedClient(s.API())(context.Background()), "a1", decoded))
 }
 
-func TestApplicationRailpackBuildOmitsUnsetOptionalFields(t *testing.T) {
-	s := newScriptedServer(t, expectPOST("/api/application.saveBuildType", `{"applicationId":"a1","buildType":"railpack","dockerBuildStage":null,"dockerContextPath":null,"dockerfile":null,"herokuVersion":null,"isStaticSpa":false,"railpackVersion":null}`, `true`))
+// TestApplicationRailpackBuildSendsUnsetOptionalFieldsAsNull pins the clearing
+// path: publishDirectory is written on every railpack save, null when unset, so
+// removing it from a program actually clears it server-side.
+func TestApplicationRailpackBuildSendsUnsetOptionalFieldsAsNull(t *testing.T) {
+	s := newScriptedServer(t, expectPOST("/api/application.saveBuildType", `{"applicationId":"a1","buildType":"railpack","dockerBuildStage":null,"dockerContextPath":null,"dockerfile":null,"herokuVersion":null,"isStaticSpa":false,"publishDirectory":null,"railpackVersion":null}`, `true`))
 	source := ApplicationSource{Type: SourceGit, Git: &GitApplicationSource{URL: "u", Branch: "main", Build: ApplicationBuild{Type: BuildRailpack}}}
 	require.NoError(t, configureApplicationBuild(context.Background(), fixedClient(s.API())(context.Background()), "a1", source))
 }
 
-// TestApplicationBuildDecodeRejectsUnsupportedNonEmptyBuildType covers the defaulting
-// correction: a build type Dokploy reports but the provider does not model must surface
-// as an error rather than being silently rewritten to nixpacks.
-func TestApplicationBuildDecodeRejectsUnsupportedNonEmptyBuildType(t *testing.T) {
-	for _, buildType := range []string{"static", "heroku_buildpacks", "paketo_buildpacks", "not-a-build-type"} {
+// TestApplicationBuildDecodeKeepsUnmodeledBuildTypes covers the defaulting
+// correction without trading it for a worse failure: a build type Dokploy reports
+// but the provider does not model is kept verbatim instead of being rewritten to
+// nixpacks, and it must not error — Read runs during refresh and import, where one
+// failing application would abort the whole operation.
+func TestApplicationBuildDecodeKeepsUnmodeledBuildTypes(t *testing.T) {
+	for _, buildType := range []string{"static", "heroku_buildpacks", "paketo_buildpacks", "a-build-type-from-a-later-dokploy"} {
 		t.Run(buildType, func(t *testing.T) {
-			_, err := decodeBuild(map[string]interface{}{"buildType": buildType})
-			require.EqualError(t, err, fmt.Sprintf("application build data has unsupported buildType %q", buildType))
+			got, err := decodeBuild(map[string]interface{}{"buildType": buildType, "railpackVersion": "0.4.2", "isStaticSpa": true, "publishDirectory": "dist"})
+			require.NoError(t, err)
+			require.Equal(t, BuildType(buildType), got.Type)
+			require.Nil(t, got.RailpackVersion)
+			require.False(t, got.IsStaticSpa)
+			require.Nil(t, got.PublishDirectory)
 		})
 	}
 }
 
-func TestApplicationSourceDecodeSurfacesUnsupportedBuildType(t *testing.T) {
+func TestApplicationSourceDecodeKeepsUnmodeledBuildType(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		raw  map[string]interface{}
+		name  string
+		raw   map[string]interface{}
+		build func(ApplicationSource) ApplicationBuild
 	}{
-		{"git", map[string]interface{}{"type": "git", "customGitUrl": "u", "customGitBranch": "main", "buildType": "static"}},
-		{"gitlab", map[string]interface{}{"type": "gitlab", "gitlabId": "i", "gitlabProjectId": float64(1), "gitlabOwner": "o", "gitlabPathNamespace": "n", "gitlabRepository": "r", "gitlabBranch": "main", "buildType": "static"}},
+		{"git", map[string]interface{}{"type": "git", "customGitUrl": "u", "customGitBranch": "main", "buildType": "static"}, func(s ApplicationSource) ApplicationBuild { return s.Git.Build }},
+		{"gitlab", map[string]interface{}{"type": "gitlab", "gitlabId": "i", "gitlabProjectId": float64(1), "gitlabOwner": "o", "gitlabPathNamespace": "n", "gitlabRepository": "r", "gitlabBranch": "main", "buildType": "static"}, func(s ApplicationSource) ApplicationBuild { return s.GitLab.Build }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodeApplicationSource(tc.raw, ApplicationSource{})
-			require.EqualError(t, err, `application build data has unsupported buildType "static"`)
+			decoded, err := decodeApplicationSource(tc.raw, ApplicationSource{})
+			require.NoError(t, err)
+			require.Equal(t, BuildType("static"), tc.build(decoded).Type)
+		})
+	}
+}
+
+// TestApplicationUnmodeledBuildTypeIsStillRejectedAsInput keeps Check strict: a
+// program may only declare a build type the provider actually writes.
+func TestApplicationUnmodeledBuildTypeIsStillRejectedAsInput(t *testing.T) {
+	for _, buildType := range []string{"static", "heroku_buildpacks", "paketo_buildpacks"} {
+		t.Run(buildType, func(t *testing.T) {
+			err := ApplicationSource{Type: SourceGit, Git: &GitApplicationSource{URL: "u", Branch: "main", Build: ApplicationBuild{Type: BuildType(buildType)}}}.validate()
+			require.EqualError(t, err, "source.git.build.type must be one of nixpacks, dockerfile, or railpack")
 		})
 	}
 }
@@ -123,16 +146,37 @@ func TestApplicationRailpackBuildDoesNotLeakFieldsIntoOtherBuildTypes(t *testing
 	}
 }
 
-func TestApplicationRailpackBuildIdenticalReadProducesNoDiff(t *testing.T) {
-	const response = `{"applicationId":"a1","name":"demo","environmentId":"e1","applicationStatus":"done","type":"git","customGitUrl":"https://git.test/repo","customGitBranch":"main","buildType":"railpack","railpackVersion":"0.4.2","isStaticSpa":true,"publishDirectory":"dist"}`
+// TestApplicationRailpackImportedStateMatchesProgramInputs walks the import path
+// as it is really walked: a program through Check on one side, application.one
+// through Read on the other. Diffing a read against itself compares a value with
+// itself and would pass even if the decoder dropped every railpack field.
+func TestApplicationRailpackImportedStateMatchesProgramInputs(t *testing.T) {
+	const response = `{"applicationId":"a1","name":"demo","environmentId":"e1","applicationStatus":"done","type":"git","customGitUrl":"https://git.test/repo","customGitBranch":"main","watchPaths":["apps/web/**"],"buildType":"railpack","railpackVersion":"0.4.2","isStaticSpa":true,"publishDirectory":"dist"}`
 	s := newScriptedServer(t, expectGET("/api/application.one", map[string][]string{"applicationId": {"a1"}}, http.StatusOK, response))
 	read, err := (Application{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ApplicationArgs, ApplicationState]{ID: "a1"})
 	require.NoError(t, err)
 	require.Equal(t, BuildRailpack, read.Inputs.Source.Git.Build.Type)
 
-	diff, err := (Application{}).Diff(t.Context(), infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: read.Inputs, State: read.State})
+	checked, err := (Application{}).Check(t.Context(), infer.CheckRequest{NewInputs: property.NewMap(map[string]property.Value{
+		"name": property.New("demo"), "environmentId": property.New("e1"),
+		"source": property.New(map[string]property.Value{
+			"type": property.New("git"),
+			"git": property.New(map[string]property.Value{
+				"url": property.New("https://git.test/repo"), "branch": property.New("main"),
+				"watchPaths": property.New([]property.Value{property.New("apps/web/**")}),
+				"build": property.New(map[string]property.Value{
+					"type": property.New("railpack"), "railpackVersion": property.New("0.4.2"),
+					"isStaticSpa": property.New(true), "publishDirectory": property.New("dist"),
+				}),
+			}),
+		}),
+	})})
 	require.NoError(t, err)
-	require.False(t, diff.HasChanges)
+	require.Empty(t, checked.Failures)
+
+	diff, err := (Application{}).Diff(t.Context(), infer.DiffRequest[ApplicationArgs, ApplicationState]{Inputs: checked.Inputs, State: read.State})
+	require.NoError(t, err)
+	require.False(t, diff.HasChanges, "imported state must match the program that declared it")
 	require.Empty(t, diff.DetailedDiff)
 }
 
