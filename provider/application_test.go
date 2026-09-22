@@ -692,3 +692,28 @@ func TestApplicationDeployOnUpdateDefaultsToTrueAndDiffsAsUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, p.Update, diff.DetailedDiff["deployOnUpdate"].Kind)
 }
+
+// TestApplicationDeployOnUpdateOnlyChangeMakesNoRequest pins the flag's own
+// update path: flipping deployOnUpdate changes nothing in Dokploy, so Update
+// must not call it at all — least of all redeploy. The scripted server expects
+// no requests, so any call fails the test.
+func TestApplicationDeployOnUpdateOnlyChangeMakesNoRequest(t *testing.T) {
+	s := newScriptedServer(t)
+	args := ApplicationArgs{Name: "demo", EnvironmentID: "e1", Source: ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "nginx"}}}
+	disabled, enabled := args, args
+	disabled.DeployOnUpdate = ptr(false)
+	enabled.DeployOnUpdate = ptr(true)
+	for _, tc := range []struct {
+		name          string
+		inputs, state ApplicationArgs
+	}{
+		{"enabled to disabled", disabled, enabled},
+		{"disabled to enabled", enabled, disabled},
+		{"unset to disabled", disabled, args},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := (Application{client: fixedClient(s.API())}).Update(t.Context(), infer.UpdateRequest[ApplicationArgs, ApplicationState]{ID: "a1", Inputs: tc.inputs, State: ApplicationState{ApplicationArgs: tc.state}})
+			require.NoError(t, err)
+		})
+	}
+}

@@ -378,3 +378,27 @@ func TestComposeDeployOnUpdateDefaultsToTrueAndDiffsAsUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, p.Update, diff.DetailedDiff["deployOnUpdate"].Kind)
 }
+
+// TestComposeDeployOnUpdateOnlyChangeMakesNoRequest pins the flag's own update
+// path for stacks: flipping deployOnUpdate changes nothing in Dokploy, so Update
+// must issue no requests at all. The scripted server expects none.
+func TestComposeDeployOnUpdateOnlyChangeMakesNoRequest(t *testing.T) {
+	s := newScriptedServer(t)
+	args := ComposeArgs{Name: "demo", EnvironmentID: "e1", ComposeType: ComposeDocker, Source: ComposeSource{Type: ComposeSourceRaw, Raw: &RawComposeSource{ComposeFile: "services: {}\n"}}}
+	disabled, enabled := args, args
+	disabled.DeployOnUpdate = ptr(false)
+	enabled.DeployOnUpdate = ptr(true)
+	for _, tc := range []struct {
+		name          string
+		inputs, state ComposeArgs
+	}{
+		{"enabled to disabled", disabled, enabled},
+		{"disabled to enabled", enabled, disabled},
+		{"unset to disabled", disabled, args},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := (Compose{client: fixedClient(s.API())}).Update(t.Context(), infer.UpdateRequest[ComposeArgs, ComposeState]{ID: "c1", Inputs: tc.inputs, State: ComposeState{ComposeArgs: tc.state}})
+			require.NoError(t, err)
+		})
+	}
+}

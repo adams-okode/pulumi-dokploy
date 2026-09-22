@@ -75,6 +75,11 @@ func sameOptionalBool(a, b *bool) bool {
 // already in state. An empty string counts as "not reported" so that a resource with no
 // stored environment does not turn a nil input into an empty string, which would diff
 // forever. The fallback is what preserves write-only secrets Dokploy never returns.
+// preferLiveSecret adopts the value Dokploy reports, falling back to what state
+// already holds. An empty string counts as "not reported": Dokploy returns one for
+// both an unset field and a cleared one, and treating that as a value would churn
+// every nil to "" on refresh. The cost is that clearing every variable in the
+// Dokploy UI does not surface as drift.
 func preferLiveSecret(live, prior *string) *string {
 	if live != nil && *live != "" {
 		value := *live
