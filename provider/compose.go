@@ -3,7 +3,6 @@ package dokploy
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client"
 	"github.com/dimeskigj/pulumi-dokploy/internal/client/generated"
@@ -117,7 +116,7 @@ func (r Compose) Diff(_ context.Context, req infer.DiffRequest[ComposeArgs, Comp
 	if !sameOptionalString(req.Inputs.Description, req.State.Description) {
 		d["description"] = p.PropertyDiff{Kind: p.Update}
 	}
-	if !reflect.DeepEqual(req.Inputs.Source, req.State.Source) && req.Inputs.Source.Type == req.State.Source.Type {
+	if !sameComposeSource(req.Inputs.Source, req.State.Source) && req.Inputs.Source.Type == req.State.Source.Type {
 		d["source"] = p.PropertyDiff{Kind: p.Update}
 	}
 	if !sameOptionalString(req.Inputs.Environment, req.State.Environment) {
@@ -300,7 +299,7 @@ func (r Compose) Update(ctx context.Context, req infer.UpdateRequest[ComposeArgs
 	}
 	api := r.client(ctx)
 	meta := req.Inputs.Name != req.State.Name || !sameOptionalString(req.Inputs.AppName, req.State.AppName) || !sameOptionalString(req.Inputs.Description, req.State.Description)
-	runtime := !reflect.DeepEqual(req.Inputs.Source, req.State.Source) || !sameOptionalString(req.Inputs.Environment, req.State.Environment) || req.Inputs.CreateEnvFile != req.State.CreateEnvFile
+	runtime := !sameComposeSource(req.Inputs.Source, req.State.Source) || !sameOptionalString(req.Inputs.Environment, req.State.Environment) || req.Inputs.CreateEnvFile != req.State.CreateEnvFile
 	if meta {
 		b := generated.ComposeUpdateJSONRequestBody{ComposeId: req.ID, Name: &req.Inputs.Name, AppName: req.Inputs.AppName, Description: nullable.NewNullNullable[string]()}
 		if req.Inputs.Description != nil {

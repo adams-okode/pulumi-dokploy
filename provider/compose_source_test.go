@@ -69,19 +69,78 @@ func TestComposeGitHubSourceCheckDefaultsComposePathAndTriggerType(t *testing.T)
 	require.Equal(t, ComposeTriggerPush, got.Inputs.Source.GitHub.TriggerType)
 }
 
-// TestComposeGitHubSourceIdenticalReadProducesNoDiff guards the import path: a read
-// fed straight back into Diff must not report a change.
-func TestComposeGitHubSourceIdenticalReadProducesNoDiff(t *testing.T) {
-	const response = `{"composeId":"c1","name":"demo","environmentId":"e1","composeStatus":"done","composeType":"docker-compose","type":"github","githubId":"i1","owner":"owner","repository":"repo","branch":"main","composePath":"deploy/compose.yml","watchPaths":["deploy/**"],"triggerType":"push","enableSubmodules":true}`
-	s := newScriptedServer(t, expectGET("/api/compose.one", map[string][]string{"composeId": {"c1"}}, http.StatusOK, response))
-	read, err := (Compose{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ComposeArgs, ComposeState]{ID: "c1"})
-	require.NoError(t, err)
-	require.Equal(t, ComposeSourceGitHub, read.Inputs.Source.Type)
+// TestComposeGitHubImportedStateMatchesProgramInputs walks the import path the
+// way it is really walked: a program through Check on one side, compose.one
+// through Read on the other. Diffing a read against itself compares a value with
+// itself and would pass even if the decoder returned nothing.
+func TestComposeGitHubImportedStateMatchesProgramInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		watchPaths string
+		inputs     map[string]property.Value
+	}{
+		{
+			name:       "declared",
+			watchPaths: `["deploy/**"]`,
+			inputs: map[string]property.Value{
+				"integrationId": property.New("i1"), "owner": property.New("owner"),
+				"repository": property.New("repo"), "branch": property.New("main"),
+				"composePath": property.New("deploy/compose.yml"), "enableSubmodules": property.New(true),
+				"watchPaths": property.New([]property.Value{property.New("deploy/**")}),
+			},
+		},
+		{
+			// A program that omits watchPaths yields nil; compose.one reports the
+			// same stack with an empty list. Those mean the same thing, and must
+			// not read as drift.
+			name:       "omitted",
+			watchPaths: `[]`,
+			inputs: map[string]property.Value{
+				"integrationId": property.New("i1"), "owner": property.New("owner"),
+				"repository": property.New("repo"), "branch": property.New("main"),
+				"composePath": property.New("deploy/compose.yml"), "enableSubmodules": property.New(true),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := `{"composeId":"c1","name":"demo","environmentId":"e1","composeStatus":"done","composeType":"docker-compose","type":"github","githubId":"i1","owner":"owner","repository":"repo","branch":"main","composePath":"deploy/compose.yml","watchPaths":` + tc.watchPaths + `,"triggerType":"push","enableSubmodules":true}`
+			s := newScriptedServer(t, expectGET("/api/compose.one", map[string][]string{"composeId": {"c1"}}, http.StatusOK, response))
+			read, err := (Compose{client: fixedClient(s.API())}).Read(t.Context(), infer.ReadRequest[ComposeArgs, ComposeState]{ID: "c1"})
+			require.NoError(t, err)
+			require.Equal(t, ComposeSourceGitHub, read.Inputs.Source.Type)
 
-	diff, err := (Compose{}).Diff(t.Context(), infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: read.Inputs, State: read.State})
+			checked, err := (Compose{}).Check(t.Context(), infer.CheckRequest{NewInputs: property.NewMap(map[string]property.Value{
+				"name": property.New("demo"), "environmentId": property.New("e1"),
+				"source": property.New(map[string]property.Value{
+					"type": property.New("github"), "github": property.New(tc.inputs),
+				}),
+			})})
+			require.NoError(t, err)
+			require.Empty(t, checked.Failures)
+
+			diff, err := (Compose{}).Diff(t.Context(), infer.DiffRequest[ComposeArgs, ComposeState]{Inputs: checked.Inputs, State: read.State})
+			require.NoError(t, err)
+			require.False(t, diff.HasChanges, "imported state must match the program that declared it")
+			require.Empty(t, diff.DetailedDiff)
+		})
+	}
+}
+
+// TestComposeWatchPathsNilAndEmptyDoNotRedeploy pins the other half: a runtime
+// change redeploys the stack, so nil versus empty must not count as one. The
+// scripted server expects nothing, so any request fails the test.
+func TestComposeWatchPathsNilAndEmptyDoNotRedeploy(t *testing.T) {
+	s := newScriptedServer(t)
+	program := ComposeArgs{Name: "demo", EnvironmentID: "e1", ComposeType: ComposeDocker, Source: ComposeSource{Type: ComposeSourceGitHub, GitHub: &GitHubComposeSource{
+		IntegrationID: "i1", Owner: "owner", Repository: "repo", Branch: "main", ComposePath: defaultComposePath, TriggerType: ComposeTriggerPush,
+	}}}
+	imported := program
+	imported.Source.GitHub = &GitHubComposeSource{
+		IntegrationID: "i1", Owner: "owner", Repository: "repo", Branch: "main", ComposePath: defaultComposePath,
+		TriggerType: ComposeTriggerPush, WatchPaths: []string{},
+	}
+	_, err := (Compose{client: fixedClient(s.API())}).Update(t.Context(), infer.UpdateRequest[ComposeArgs, ComposeState]{ID: "c1", Inputs: program, State: ComposeState{ComposeArgs: imported}})
 	require.NoError(t, err)
-	require.False(t, diff.HasChanges)
-	require.Empty(t, diff.DetailedDiff)
 }
 
 func TestComposeGitHubSourceValidate(t *testing.T) {

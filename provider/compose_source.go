@@ -3,6 +3,7 @@ package dokploy
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/dimeskigj/pulumi-dokploy/internal/client"
 	"github.com/dimeskigj/pulumi-dokploy/internal/client/generated"
@@ -283,3 +284,43 @@ func composeSourcePath(s ComposeSource) string {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// sameComposeSource compares a compose source the way a user's program and a
+// Read-derived state must be compared. A program that omits watchPaths yields
+// nil while compose.one reports the same stack with an empty list, and
+// reflect.DeepEqual would call those different — a diff, and in Update a
+// redeploy, for a stack nobody changed.
+func sameComposeSource(a, b ComposeSource) bool {
+	return reflect.DeepEqual(normalizeComposeSource(a), normalizeComposeSource(b))
+}
+
+func normalizeComposeSource(source ComposeSource) ComposeSource {
+	switch source.Type {
+	case ComposeSourceGit:
+		if source.Git != nil {
+			git := *source.Git
+			git.WatchPaths = normalizeWatchPaths(git.WatchPaths)
+			source.Git = &git
+		}
+	case ComposeSourceGitLab:
+		if source.GitLab != nil {
+			gitlab := *source.GitLab
+			gitlab.WatchPaths = normalizeWatchPaths(gitlab.WatchPaths)
+			source.GitLab = &gitlab
+		}
+	case ComposeSourceGitHub:
+		if source.GitHub != nil {
+			github := *source.GitHub
+			github.WatchPaths = normalizeWatchPaths(github.WatchPaths)
+			source.GitHub = &github
+		}
+	}
+	return source
+}
+
+func normalizeWatchPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	return paths
+}
