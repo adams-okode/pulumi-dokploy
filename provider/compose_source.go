@@ -317,10 +317,3 @@ func normalizeComposeSource(source ComposeSource) ComposeSource {
 	}
 	return source
 }
-
-func normalizeWatchPaths(paths []string) []string {
-	if len(paths) == 0 {
-		return nil
-	}
-	return paths
-}
