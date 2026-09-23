@@ -402,3 +402,17 @@ func TestComposeDeployOnUpdateOnlyChangeMakesNoRequest(t *testing.T) {
 		})
 	}
 }
+
+// TestComposeDeployOnUpdateDefaultMatchesImportedState pins the import path for
+// stacks: the default true from Check and the nil a Read-derived state holds both
+// mean "deploy", so they must not diff.
+func TestComposeDeployOnUpdateDefaultMatchesImportedState(t *testing.T) {
+	source := ComposeSource{Type: ComposeSourceRaw, Raw: &RawComposeSource{ComposeFile: "services: {}\n"}}
+	diff, err := (Compose{}).Diff(t.Context(), infer.DiffRequest[ComposeArgs, ComposeState]{
+		Inputs: ComposeArgs{Name: "demo", EnvironmentID: "e1", ComposeType: ComposeDocker, DeployOnUpdate: ptr(true), Source: source},
+		State:  ComposeState{ComposeArgs: ComposeArgs{Name: "demo", EnvironmentID: "e1", ComposeType: ComposeDocker, Source: source}},
+	})
+	require.NoError(t, err)
+	require.False(t, diff.HasChanges)
+	require.Empty(t, diff.DetailedDiff)
+}

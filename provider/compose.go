@@ -123,7 +123,11 @@ func (r Compose) Diff(_ context.Context, req infer.DiffRequest[ComposeArgs, Comp
 	}
 	// deployOnUpdate only steers the update path, so it is reported as a change to get
 	// the new value recorded in state but deliberately left out of the runtime check.
-	if !sameOptionalBool(req.Inputs.DeployOnUpdate, req.State.DeployOnUpdate) {
+	// Compare effective values, not pointers: Dokploy does not store the flag, so a
+	// Read-derived state (every import) holds nil, while Check fills the program's
+	// omitted value with the default true. Both mean "deploy", and a literal
+	// comparison would put a deployOnUpdate update on every imported resource.
+	if deployOnUpdate(req.Inputs.DeployOnUpdate) != deployOnUpdate(req.State.DeployOnUpdate) {
 		d["deployOnUpdate"] = p.PropertyDiff{Kind: p.Update}
 	}
 	return infer.DiffResponse{HasChanges: len(d) > 0, DetailedDiff: d}, nil

@@ -717,3 +717,18 @@ func TestApplicationDeployOnUpdateOnlyChangeMakesNoRequest(t *testing.T) {
 		})
 	}
 }
+
+// TestApplicationDeployOnUpdateDefaultMatchesImportedState pins the import path:
+// Check fills an omitted deployOnUpdate with true, and a Read-derived state holds
+// nil because Dokploy never stores the flag. Both mean "deploy", so a program that
+// leaves the flag at its default must preview clean against an imported resource.
+func TestApplicationDeployOnUpdateDefaultMatchesImportedState(t *testing.T) {
+	source := ApplicationSource{Type: SourceDocker, Docker: &DockerSource{Image: "nginx"}}
+	diff, err := (Application{}).Diff(t.Context(), infer.DiffRequest[ApplicationArgs, ApplicationState]{
+		Inputs: ApplicationArgs{Name: "demo", EnvironmentID: "e1", DeployOnUpdate: ptr(true), Source: source},
+		State:  ApplicationState{ApplicationArgs: ApplicationArgs{Name: "demo", EnvironmentID: "e1", Source: source}},
+	})
+	require.NoError(t, err)
+	require.False(t, diff.HasChanges)
+	require.Empty(t, diff.DetailedDiff)
+}
